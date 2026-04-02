@@ -54,10 +54,10 @@ Consequence: precedence and deduplication are **name-based only**. Two different
 
 ### Native provider (`builtin.ts`)
 
-Loads `.omp` rules from:
+Loads `.pisces` rules from:
 
-- project: `<cwd>/.omp/rules/*.{md,mdc}`
-- user: `~/.omp/agent/rules/*.{md,mdc}`
+- project: `<cwd>/.pisces/rules/*.{md,mdc}`
+- user: `~/.pisces/agent/rules/*.{md,mdc}`
 
 Normalization:
 

@@ -16,7 +16,7 @@ Primary implementation:
 ## Startup
 
 ```bash
-omp --mode rpc [regular CLI options]
+pisces --mode rpc [regular CLI options]
 ```
 
 Behavior notes:

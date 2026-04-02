@@ -31,7 +31,7 @@ At module initialization (`export const native = loadNative();`), `native.ts` co
   - `execDir`: directory containing `process.execPath`.
   - `versionedDir`: `<getNativesDir()>/<packageVersion>`.
   - `userDataDir` fallback:
-    - Windows: `%LOCALAPPDATA%/omp` (or `%USERPROFILE%/AppData/Local/omp`).
+    - Windows: `%LOCALAPPDATA%/pisces` (or `%USERPROFILE%/AppData/Local/pisces`).
     - Non-Windows: `~/.local/bin`.
 - **Compiled-binary mode** (`isCompiledBinary`): true if any of:
   - `PI_COMPILED` env var is set, or

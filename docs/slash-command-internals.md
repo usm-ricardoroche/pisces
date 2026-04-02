@@ -58,10 +58,10 @@ So hidden files/directories are not loaded, and ignored paths are skipped.
 
 ## `native` provider (`builtin.ts`)
 
-Search roots come from `.omp` directories:
+Search roots come from `.pisces` directories:
 
-- project: `<cwd>/.omp/commands/*.md`
-- user: `~/.omp/agent/commands/*.md`
+- project: `<cwd>/.pisces/commands/*.md`
+- user: `~/.pisces/agent/commands/*.md`
 
 `getConfigDirs()` returns project first, then user, so **project native commands beat user native commands** when names collide.
 

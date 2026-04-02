@@ -81,7 +81,7 @@ For compiled binaries (`PI_COMPILED` or Bun embedded runtime markers), loader be
 
 1. Check versioned user cache path: `<getNativesDir()>/<packageVersion>/...`
 2. Check legacy compiled-binary location:
-   - Windows: `%LOCALAPPDATA%/omp` (fallback `%USERPROFILE%/AppData/Local/omp`)
+   - Windows: `%LOCALAPPDATA%/pisces` (fallback `%USERPROFILE%/AppData/Local/pisces`)
    - non-Windows: `~/.local/bin`
 3. Fall back to packaged `native/` and executable directory candidates
 
