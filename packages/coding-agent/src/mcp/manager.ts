@@ -109,6 +109,8 @@ export interface MCPDiscoverOptions {
 	filterBrowser?: boolean;
 	/** Called when starting to connect to servers */
 	onConnecting?: (serverNames: string[]) => void;
+	/** Additional server configs merged in after file-based discovery. */
+	extraServers?: Record<string, MCPServerConfig>;
 }
 
 /**
@@ -247,7 +249,8 @@ export class MCPManager {
 			filterExa: options?.filterExa,
 			filterBrowser: options?.filterBrowser,
 		});
-		const result = await this.connectServers(configs, sources, options?.onConnecting);
+		const mergedConfigs = options?.extraServers ? { ...configs, ...options.extraServers } : configs;
+		const result = await this.connectServers(mergedConfigs, sources, options?.onConnecting);
 		result.exaApiKeys = exaApiKeys;
 		return result;
 	}
