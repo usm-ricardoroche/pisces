@@ -361,6 +361,251 @@ conversation history is reconstructable by following the chain.
 
 ---
 
+## Shoal-CLI integration
+
+Shoal is a terminal-first orchestration tool for parallel AI coding agents
+(Fish + tmux + git worktrees + MCP pooling). It sits at the **developer
+experience layer** — separate from lobster-party's server-side gRPC stack.
+The two systems complement each other:
+
+- **lobster-party** = API-first server harness (gRPC, sandboxed claws, cloud-hosted)
+- **shoal** = terminal orchestration layer (tmux, worktrees, local developer sessions)
+
+Pisces must be a first-class citizen in both.
+
+### What shoal needs: a pisces tool profile
+
+Shoal uses TOML tool profiles (`~/.config/shoal/tools/<name>.toml`) to define
+how to launch and monitor each AI agent. Pi (`pi.toml`) and opencode
+(`opencode.toml`) are already shipped. Pisces needs its own profile.
+
+**New file: `examples/config/tools/pisces.toml`** (shoal repo)
+
+```toml
+# Shoal — Pisces coding agent tool definition
+# https://github.com/usm-ricardoroche/pisces
+# Install: npm install -g pisces (or bun add -g pisces)
+# Place in ~/.config/shoal/tools/pisces.toml
+
+[tool]
+name = "pisces"
+command = "omp"          # or "pisces" once binary renamed
+icon = "🐟"
+
+[detection]
+# Pisces TUI shares oh-my-pi's rendering; reuse pi patterns with additions
+busy_patterns  = ["thinking", "generating", "executing", "reading", "writing", "editing",
+                  "searching", "running lsp", "subagent"]
+waiting_patterns = ["permission", "confirm", "approve", "y/n", "│ >"]
+error_patterns   = ["Error:", "error:", "ERROR", "FAILED", "turn failed"]
+idle_patterns    = ["│ >", "\\$"]
+
+[mcp]
+# Pisces uses its own plugin/extension system for MCP — not a JSON config file.
+# MCP servers are configured via PISCES_MCP_SOCKETS env var (Unix socket list)
+# or the [mcp] section in pisces.json. Set socket_env here so Shoal's MCP pool
+# can inject the shoal-orchestrator socket directly into the pisces process.
+config_cmd  = ""
+config_file = "pisces.json"          # project-local pisces config (if present)
+socket_env  = "PISCES_MCP_SOCKETS"  # env var pisces reads for additional MCP sockets
+```
+
+**Key difference vs pi.toml:** `socket_env = "PISCES_MCP_SOCKETS"` tells shoal
+that it can pass shoal's MCP socket pool to pisces via an env var. This is the
+hook that enables shared MCP servers between shoal-managed pisces sessions.
+
+### MCP socket injection
+
+Shoal's MCP pool runs shared MCP servers on Unix sockets. When shoal starts a
+pisces session, it can inject the socket list:
+
+```bash
+PISCES_MCP_SOCKETS=/tmp/shoal-mcp/memory.sock:/tmp/shoal-mcp/filesystem.sock \
+  omp --no-title
+```
+
+Pisces must read `PISCES_MCP_SOCKETS` (colon-delimited socket paths) and
+register each as a stdio MCP client on startup. This gives pisces sessions
+access to shoal's pooled memory, filesystem, and `shoal-orchestrator` servers —
+with **no per-session MCP process startup cost**.
+
+**Required pisces change (P1):**
+
+In `packages/coding-agent/src/main.ts` (or MCP init path):
+
+```typescript
+const extraSockets = (process.env.PISCES_MCP_SOCKETS ?? "").split(":").filter(Boolean)
+for (const socket of extraSockets) {
+  extension.registerMCPClient({ transport: "unix", socket })
+}
+```
+
+This is how pisces becomes a shoal MCP pool client. The shoal `shoal-orchestrator`
+MCP server (which exposes `list_sessions`, `send_keys`, `create_session` etc.)
+becomes available to the pisces agent as a native tool — enabling orchestration
+loops without any custom tooling.
+
+### Session template for interactive pisces development
+
+**New file: `examples/config/templates/pisces-dev.toml`** (shoal repo)
+
+```toml
+# Shoal — Pisces interactive development template
+# Usage: shoal new --template pisces-dev
+
+[template]
+name = "pisces-dev"
+description = "Pisces agent with terminal pane and MCP orchestration"
+extends = "base-dev"
+tool = "pisces"
+mixins = ["shoal-orchestrator"]  # inject shoal MCP tools
+
+[template.env]
+SHOAL_TOOL = "pisces"
+# Disable server features not needed in interactive mode
+PISCES_LOBSTER_MODE = "0"
+PISCES_PROVIDER_DISCOVERY = "1"   # enable in interactive mode (user has credentials)
+
+[[windows]]
+name = "editor"
+focus = true
+
+[[windows.panes]]
+split = "root"
+size = "65%"
+title = "pisces-agent"
+command = "{tool_command}"
+
+[[windows.panes]]
+split = "right"
+size = "35%"
+title = "terminal"
+command = "echo 'Terminal — git, tests, omp debug'"
+
+[[windows]]
+name = "tools"
+cwd = "{work_dir}"
+
+[[windows.panes]]
+split = "root"
+title = "runner"
+command = "echo 'Build/test runner'"
+```
+
+### Robo supervisor with pisces backend
+
+The shoal robo supervisor is "just another agent session with shoal CLI access."
+Pisces becomes the robo supervisor's agent tool — giving the supervisor access
+to shoal orchestration MCP tools natively.
+
+**New file: `examples/config/robo/pisces-robo.toml`** (shoal repo)
+
+```toml
+[profile]
+name = "pisces-robo"
+tool = "pisces"
+auto_approve = false
+
+[monitoring]
+poll_interval = 10
+waiting_timeout = 300
+
+[escalation]
+notify = true
+auto_respond = false
+```
+
+With the `shoal-orchestrator` MCP server available inside the robo pisces
+session, the supervisor can call `list_sessions`, `send_keys`, and
+`create_session` as first-class MCP tools — no CLI subprocess wrapping needed.
+
+### Status detection tuning
+
+Pisces has a richer TUI than base pi: it shows LSP status indicators, subagent
+names, and memory search progress. Shoal's watcher needs patterns for these:
+
+```toml
+# Add to pisces.toml [detection]:
+busy_patterns = [
+  # Standard pi patterns
+  "thinking", "generating", "executing", "reading", "writing", "editing",
+  # Pisces extensions
+  "searching",          # memory/web search in progress
+  "running lsp",        # LSP diagnostics run
+  "subagent: \\w+",     # spawned subagent name
+  "checking",           # TTSR rule pattern match
+]
+```
+
+### Journal integration
+
+Shoal's `core/journal.py` records session journals (append-only Markdown per
+session, MCP-accessible via `append_journal`/`read_journal`). Pisces can write
+to its session journal by calling the shoal MCP tool when `shoal-orchestrator`
+is in scope — no extra tooling in pisces needed.
+
+The lobster-party `messageUser` tool and shoal journals serve overlapping roles:
+- `messageUser` → routes to an active conversation channel in the clawplexer
+  WebSocket (real-time user-facing message)
+- shoal journal → persistent per-session audit log for the developer
+
+Both should coexist. In interactive shoal sessions (not lobster-party sandboxed
+claws), the agent can write to the journal directly via MCP.
+
+### What shoal changes to be pisces-compatible
+
+A summary of concrete work required in the shoal repo:
+
+#### Shoal changes (concrete work items)
+
+1. **Add `examples/config/tools/pisces.toml`** — tool profile with correct
+   detection patterns and `socket_env = "PISCES_MCP_SOCKETS"`.
+
+2. **Add `examples/config/templates/pisces-dev.toml`** — interactive dev template
+   extending `base-dev`, using pisces tool, injecting `shoal-orchestrator` mixin.
+
+3. **Add `examples/config/robo/pisces-robo.toml`** — robo profile using pisces
+   as supervisor agent.
+
+4. **`src/shoal/services/mcp_pool.py`**: Teach shoal's pool startup to set
+   `PISCES_MCP_SOCKETS` in the pisces session environment when starting a pisces
+   session with MCP servers configured. Currently shoal injects MCP config file
+   paths; for pisces it must inject the socket list via env var instead.
+
+   Concretely: when `tool.mcp.socket_env` is set in the tool profile, and the
+   session has MCP servers configured, shoal builds the socket list and injects
+   it as `{socket_env}=<socket1>:<socket2>:...` in the startup environment.
+
+5. **`src/shoal/services/lifecycle.py`**: When resolving startup command for a
+   pisces session, substitute `{pisces_config}` with the path to `pisces.json`
+   if present in the worktree root or `~/.config/shoal/`. (Mirrors how
+   `config_file = "pisces.json"` in the tool profile is used.)
+
+6. **`src/shoal/core/detection.py`** (or wherever tool patterns are resolved):
+   Ensure the extended busy/waiting/idle patterns in `pisces.toml` are validated
+   and compiled correctly for the pisces TUI's differential output format
+   (same as pi — frame-differential rendering, not full-screen redraws).
+
+7. **`ROADMAP.md`**: The existing `Future Considerations` note about omp integration
+   should be updated to reference pisces and this plan.
+
+#### Pisces changes required for shoal (cross-ref)
+
+| Change | Priority | File in pisces |
+|---|---|---|
+| Read `PISCES_MCP_SOCKETS` and register as MCP clients | P1 | `packages/coding-agent/src/main.ts` |
+| `socket_env` protocol: accept `unix://` or bare path | P1 | same |
+| `pisces.json` `[mcp]` section: named socket entries | P2 | config schema |
+
+#### What shoal does NOT need to change
+
+- Session lifecycle, worktree management, SQLite state — all tool-agnostic
+- The `watcher.py` tmux pane scraper — works with any pattern-based tool
+- The `mcp_pool.py` server pool itself — pisces connects as a client, not a pool member
+- Remote sessions, API server, journal system — all work with any tool profile
+
+---
+
 ## File map: what changes where
 
 ### In this repo (pisces / oh-my-pi fork)
@@ -372,7 +617,7 @@ conversation history is reconstructable by following the chain.
 | `packages/coding-agent/src/session/session-storage.ts` | P0.1: add `finalize()` method |
 | `packages/coding-agent/src/lobster/tools.ts` | P0.4: messageUser + memorySearch extension |
 | `packages/coding-agent/src/lobster/index.ts` | P0.4: extension loader for lobster mode |
-| `packages/coding-agent/src/main.ts` | P1.7: provider discovery flag wiring |
+| `packages/coding-agent/src/main.ts` | P1.7: provider discovery flag wiring; P1: PISCES_MCP_SOCKETS |
 
 ### In lobster-party
 
@@ -384,6 +629,17 @@ conversation history is reconstructable by following the chain.
 | `config/opencode-runtime/opencode.json` | rename to `pisces.json`, update schema |
 | `config/opencode-runtime/agent/lobster-runtime.md` | keep as-is (portable Markdown) |
 
+### In shoal-cli
+
+| File | Change |
+|---|---|
+| `examples/config/tools/pisces.toml` | new — pisces tool definition |
+| `examples/config/templates/pisces-dev.toml` | new — interactive dev template |
+| `examples/config/robo/pisces-robo.toml` | new — robo profile using pisces |
+| `src/shoal/services/mcp_pool.py` | inject `PISCES_MCP_SOCKETS` env var when `socket_env` set |
+| `src/shoal/services/lifecycle.py` | `{pisces_config}` interpolation in startup command |
+| `ROADMAP.md` | update omp note to reference pisces + this plan |
+
 ---
 
 ## What to leave alone
@@ -392,8 +648,7 @@ conversation history is reconstructable by following the chain.
 - The gRPC protobuf schema — `TurnRequest`/`TurnResponse` unchanged
 - `AGENTS.md`, skills, rules, instructions — already portable Markdown
 - The oh-my-pi TUI, interactive mode, browser tools, LSP, IPython — keep as-is
-- Upstream sync strategy: track `can1357/oh-my-pi` as a remote, periodically
-  merge upstream improvements into pisces
+- Shoal's SQLite state, worktree lifecycle, API server — all tool-agnostic
 
 ---
 
@@ -424,3 +679,9 @@ one new `src/lobster/` module) to minimize merge conflicts with upstream.
 5. The `pisces.json` schema extends `opencode.json` — should pisces remain
    compatible with `opencode.json` (so existing lobster configs work without
    renaming), or should the schema break cleanly?
+6. Shoal MCP socket injection: should `PISCES_MCP_SOCKETS` be a colon-delimited
+   list of raw Unix socket paths, or a JSON array of `{name, socket}` objects
+   so pisces can surface tool names correctly in the TUI?
+7. Should the shoal-cli pisces tool profile ship in the main repo (as an example)
+   or in a `pisces` npm package as a shoal plugin? The latter would let pisces
+   install manage its own shoal integration.
