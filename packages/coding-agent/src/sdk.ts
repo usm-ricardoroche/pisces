@@ -187,6 +187,8 @@ export interface CreateAgentSessionOptions {
 
 	/** Enable MCP server discovery from .mcp.json files. Default: true */
 	enableMCP?: boolean;
+	/** Additional MCP server configs to register alongside discovered servers. */
+	extraMcpServers?: Record<string, import("./mcp/types").MCPServerConfig>;
 
 	/** Enable LSP integration (tool, formatting, diagnostics, warmup). Default: true */
 	enableLsp?: boolean;
@@ -978,6 +980,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				filterBrowser: settings.get("browser.enabled") ?? false,
 				cacheStorage: settings.getStorage(),
 				authStorage,
+				extraServers: options.extraMcpServers,
 			}),
 		);
 		mcpManager = mcpResult.manager;
@@ -1031,7 +1034,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	}
 
 	const inlineExtensions: ExtensionFactory[] = options.extensions ? [...options.extensions] : [];
-	inlineExtensions.push(createAutoresearchExtension);
+	if (settings.get("autoresearch.enabled")) {
+		inlineExtensions.push(createAutoresearchExtension);
+	}
 	if (customTools.length > 0) {
 		inlineExtensions.push(createCustomToolsExtension(customTools));
 	}

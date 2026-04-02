@@ -621,7 +621,7 @@ export async function runRootCommand(parsed: Args, rawArgs: string[]): Promise<v
 
 	// Initialize discovery system with settings for provider persistence
 	logger.time("initializeWithSettings", () => initializeWithSettings(settings));
-	if (!parsedArgs.noProviderDiscovery) {
+	if (!parsedArgs.noProviderDiscovery && !settings.get("pisces.noProviderDiscovery")) {
 		modelRegistry.refreshInBackground();
 	}
 
@@ -731,20 +731,22 @@ export async function runRootCommand(parsed: Args, rawArgs: string[]): Promise<v
 
 	// Shoal-first: inject active session context into system prompt via inline extension.
 	// Reads the Shoal SQLite DB directly — no daemon needed, zero noise when idle.
-	{
+	if (settings.get("shoal.enabled")) {
 		const { shoalExtension } = await import("./shoal");
 		sessionOptions.extensions = [...(sessionOptions.extensions ?? []), shoalExtension];
 	}
 
-	// Lobster extension tools (PISCES_LOBSTER_MODE=1)
-	if (Bun.env.PISCES_LOBSTER_MODE === "1") {
+	// Lobster extension tools (PISCES_LOBSTER_MODE=1 or pisces.lobsterMode: true)
+	if (Bun.env.PISCES_LOBSTER_MODE === "1" || settings.get("pisces.lobsterMode")) {
 		const { messageUserTool, memorySearchTool } = await import("./lobster");
 		sessionOptions.customTools = [...(sessionOptions.customTools ?? []), messageUserTool, memorySearchTool];
 	}
 
-	// Extra MCP servers from PISCES_MCP_SOCKETS (colon-delimited Unix socket paths)
+	// Extra MCP servers from PISCES_MCP_SOCKETS or pisces.mcpSockets config
 	// Each socket is connected as a stdio MCP client via `nc -U <path>`.
-	const piscesMcpSockets = (Bun.env.PISCES_MCP_SOCKETS ?? "").split(":").filter(Boolean);
+	const envSockets = (Bun.env.PISCES_MCP_SOCKETS ?? "").split(":").filter(Boolean);
+	const configSockets: string[] = settings.get("pisces.mcpSockets");
+	const piscesMcpSockets = envSockets.length > 0 ? envSockets : configSockets;
 	if (piscesMcpSockets.length > 0) {
 		const extraMcpServers: Record<string, import("./mcp/types").MCPStdioServerConfig> = {};
 		for (const [idx, sock] of piscesMcpSockets.entries()) {

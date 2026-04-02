@@ -1620,6 +1620,28 @@ export const SETTINGS_SCHEMA = {
 	"thinkingBudgets.high": { type: "number", default: 16384 },
 
 	"thinkingBudgets.xhigh": { type: "number", default: 32768 },
+
+	// ────────────────────────────────────────────────────────────────────────
+	// Pisces feature flags
+	// ────────────────────────────────────────────────────────────────────────
+
+	"pisces.preset": {
+		type: "enum",
+		values: ["default", "lobster", "headless", "minimal"] as const,
+		default: "default",
+	},
+
+	"pisces.lobsterMode": { type: "boolean", default: false },
+
+	"pisces.mcpSockets": { type: "array", default: [] as string[] },
+
+	"pisces.noProviderDiscovery": { type: "boolean", default: false },
+
+	"autoresearch.enabled": { type: "boolean", default: true },
+
+	"ssh.enabled": { type: "boolean", default: true },
+
+	"shoal.enabled": { type: "boolean", default: true },
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1821,6 +1843,13 @@ export interface BashInterceptorRule {
 	allowSubcommands?: string[];
 }
 
+export interface PiscesSettings {
+	preset: "default" | "lobster" | "headless" | "minimal";
+	lobsterMode: boolean;
+	mcpSockets: string[];
+	noProviderDiscovery: boolean;
+}
+
 /** Map group prefix -> typed settings interface */
 export interface GroupTypeMap {
 	compaction: CompactionSettings;
@@ -1838,6 +1867,7 @@ export interface GroupTypeMap {
 	modelRoles: Record<string, string>;
 	modelTags: ModelTagsSettings;
 	cycleOrder: string[];
+	pisces: PiscesSettings;
 }
 
 export type GroupPrefix = keyof GroupTypeMap;

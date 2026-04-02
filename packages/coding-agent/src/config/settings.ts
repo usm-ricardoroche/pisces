@@ -30,6 +30,7 @@ import { isLightTheme, setAutoThemeMapping, setColorBlindMode, setSymbolPreset }
 import { type EditMode, normalizeEditMode } from "../patch";
 import { AgentStorage } from "../session/agent-storage";
 import { withFileLock } from "./file-lock";
+import { PRESETS, type PresetName } from "./presets";
 import {
 	type BashInterceptorRule,
 	type GroupPrefix,
@@ -406,10 +407,43 @@ export class Settings {
 		// Load project settings
 		this.#project = await this.#loadProjectSettings();
 
+		// Apply preset defaults (before rebuilding merged view)
+		this.#applyPreset();
+
 		// Build merged view
 		this.#rebuildMerged();
 		this.#fireAllHooks();
 		return this;
+	}
+
+	#resolvePresetName(): PresetName {
+		const envPreset = Bun.env.PISCES_PRESET;
+		if (envPreset && envPreset !== "default") return envPreset as PresetName;
+		for (const source of [this.#overrides, this.#global, this.#project]) {
+			const val = getByPath(source, ["pisces", "preset"]);
+			if (typeof val === "string" && val !== "default") return val as PresetName;
+		}
+		return "default";
+	}
+
+	#applyPreset(): void {
+		const presetName = this.#resolvePresetName();
+		if (presetName === "default") return;
+
+		const presetOverrides = PRESETS[presetName];
+		if (!presetOverrides) return;
+
+		for (const [key, value] of Object.entries(presetOverrides)) {
+			const segments = parsePath(key);
+			// Only apply if user hasn't explicitly set this key in any source
+			if (
+				getByPath(this.#global, segments) === undefined &&
+				getByPath(this.#project, segments) === undefined &&
+				getByPath(this.#overrides, segments) === undefined
+			) {
+				setByPath(this.#overrides, segments, value);
+			}
+		}
 	}
 
 	async #loadYaml(filePath: string): Promise<RawSettings> {
