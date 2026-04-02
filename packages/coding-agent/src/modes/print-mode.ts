@@ -156,21 +156,30 @@ export async function runPrintMode(session: AgentSession, options: PrintModeOpti
 		await session.prompt(message);
 	}
 
-	// In text mode, output final response
+	// Check last assistant message for error — applies in both text and json modes.
+	{
+		const state = session.state;
+		const lastMessage = state.messages[state.messages.length - 1];
+		if (lastMessage?.role === "assistant") {
+			const assistantMsg = lastMessage as AssistantMessage;
+			if (assistantMsg.stopReason === "error" || assistantMsg.stopReason === "aborted") {
+				const message = assistantMsg.errorMessage || `Request ${assistantMsg.stopReason}`;
+				if (mode === "json") {
+					process.stdout.write(`${JSON.stringify({ type: "error", code: "TURN_FAILED", message })}\n`);
+				} else {
+					process.stderr.write(`${message}\n`);
+				}
+				process.exit(1);
+			}
+		}
+	}
+
+	// In text mode, output final response text
 	if (mode === "text") {
 		const state = session.state;
 		const lastMessage = state.messages[state.messages.length - 1];
-
 		if (lastMessage?.role === "assistant") {
 			const assistantMsg = lastMessage as AssistantMessage;
-
-			// Check for error/aborted
-			if (assistantMsg.stopReason === "error" || assistantMsg.stopReason === "aborted") {
-				process.stderr.write(`${assistantMsg.errorMessage || `Request ${assistantMsg.stopReason}`}\n`);
-				process.exit(1);
-			}
-
-			// Output text content
 			for (const content of assistantMsg.content) {
 				if (content.type === "text") {
 					process.stdout.write(`${content.text}\n`);
@@ -179,8 +188,12 @@ export async function runPrintMode(session: AgentSession, options: PrintModeOpti
 		}
 	}
 
-	// Ensure stdout is fully flushed before returning
-	// This prevents race conditions where the process exits before all output is written
+	// Drain the session persist queue before dispose. Even though dispose()
+	// calls sessionManager.close(), an explicit flush here ensures the
+	// append-writer is fsynced regardless of #persistWriter state at call time.
+	await session.sessionManager.flush();
+
+	// Flush stdout before exiting so no output is lost on fast Bun exits.
 	await new Promise<void>((resolve, reject) => {
 		process.stdout.write("", err => {
 			if (err) reject(err);

@@ -47,6 +47,7 @@ import { type CreateAgentSessionOptions, createAgentSession, discoverAuthStorage
 import type { AgentSession } from "./session/agent-session";
 import { resolveResumableSession, type SessionInfo, SessionManager } from "./session/session-manager";
 import { resolvePromptInput } from "./system-prompt";
+import { getBundledAgent } from "./task/agents";
 import { getChangelogPath, getNewEntries, parseChangelog } from "./utils/changelog";
 
 async function checkForNewVersion(currentVersion: string): Promise<string | undefined> {
@@ -513,6 +514,27 @@ async function buildSessionOptions(
 		options.additionalExtensionPaths = [];
 	}
 
+	// Apply bundled agent as system prompt
+	if (parsed.agent) {
+		const agentDef = getBundledAgent(parsed.agent);
+		if (!agentDef) {
+			process.stderr.write(`Unknown agent: ${parsed.agent}. Run 'omp agents unpack' to see available agents.\n`);
+			process.exit(1);
+		}
+		const agentPrompt = agentDef.systemPrompt;
+		const existing = options.systemPrompt;
+		if (existing === undefined) {
+			options.systemPrompt = agentPrompt;
+		} else if (typeof existing === "string") {
+			options.systemPrompt = `${existing}\n\n${agentPrompt}`;
+		} else {
+			options.systemPrompt = base => `${existing(base)}\n\n${agentPrompt}`;
+		}
+		if (agentDef.tools && !parsed.tools) {
+			options.toolNames = agentDef.tools;
+		}
+	}
+
 	return { options };
 }
 
@@ -599,7 +621,9 @@ export async function runRootCommand(parsed: Args, rawArgs: string[]): Promise<v
 
 	// Initialize discovery system with settings for provider persistence
 	logger.time("initializeWithSettings", () => initializeWithSettings(settings));
-	modelRegistry.refreshInBackground();
+	if (!parsedArgs.noProviderDiscovery) {
+		modelRegistry.refreshInBackground();
+	}
 
 	// Apply model role overrides from CLI args or env vars (ephemeral, not persisted)
 	const smolModel = parsedArgs.smol ?? $env.PI_SMOL_MODEL;
@@ -704,6 +728,34 @@ export async function runRootCommand(parsed: Args, rawArgs: string[]): Promise<v
 	sessionOptions.authStorage = authStorage;
 	sessionOptions.modelRegistry = modelRegistry;
 	sessionOptions.hasUI = isInteractive;
+
+	// Shoal-first: inject active session context into system prompt via inline extension.
+	// Reads the Shoal SQLite DB directly — no daemon needed, zero noise when idle.
+	{
+		const { shoalExtension } = await import("./shoal");
+		sessionOptions.extensions = [...(sessionOptions.extensions ?? []), shoalExtension];
+	}
+
+	// Lobster extension tools (PISCES_LOBSTER_MODE=1)
+	if (Bun.env.PISCES_LOBSTER_MODE === "1") {
+		const { messageUserTool, memorySearchTool } = await import("./lobster");
+		sessionOptions.customTools = [...(sessionOptions.customTools ?? []), messageUserTool, memorySearchTool];
+	}
+
+	// Extra MCP servers from PISCES_MCP_SOCKETS (colon-delimited Unix socket paths)
+	// Each socket is connected as a stdio MCP client via `nc -U <path>`.
+	const piscesMcpSockets = (Bun.env.PISCES_MCP_SOCKETS ?? "").split(":").filter(Boolean);
+	if (piscesMcpSockets.length > 0) {
+		const extraMcpServers: Record<string, import("./mcp/types").MCPStdioServerConfig> = {};
+		for (const [idx, sock] of piscesMcpSockets.entries()) {
+			// Use socket basename (no extension) as the server name so Bedrock tool
+			// names stay well under the 64-char limit. Append index for uniqueness.
+			const base = sock.replace(/\.sock$/, "").replace(/.*[\/\\]/, "").replace(/[^a-z0-9_]/gi, "_").slice(0, 40);
+			const name = idx === 0 ? `shoal_${base}` : `shoal_${base}_${idx}`;
+			extraMcpServers[name] = { type: "stdio", command: "nc", args: ["-U", sock] };
+		}
+		sessionOptions.extraMcpServers = extraMcpServers;
+	}
 
 	// Handle CLI --api-key as runtime override (not persisted)
 	if (parsedArgs.apiKey) {
