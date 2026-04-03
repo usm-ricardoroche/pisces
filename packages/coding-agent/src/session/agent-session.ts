@@ -629,35 +629,25 @@ export class AgentSession {
 	 */
 	#readBudgetPolicy(): RunBudgetPolicy | undefined {
 		const s = this.settings;
-		const maxWallTimeMs = s.get("task.budget.maxWallTimeMs") as number | undefined;
-		const maxInputTokens = s.get("task.budget.maxInputTokens") as number | undefined;
-		const maxOutputTokens = s.get("task.budget.maxOutputTokens") as number | undefined;
-		const maxTotalTokens = s.get("task.budget.maxTotalTokens") as number | undefined;
-		const maxCostUsd = s.get("task.budget.maxCostUsd") as number | undefined;
-		const maxToolCalls = s.get("task.budget.maxToolCalls") as number | undefined;
-		const maxSubagents = s.get("task.budget.maxSubagents") as number | undefined;
-		const warnAtRatio = s.get("task.budget.warnAtRatio") as number | undefined;
-		if (
-			maxWallTimeMs === undefined &&
-			maxInputTokens === undefined &&
-			maxOutputTokens === undefined &&
-			maxTotalTokens === undefined &&
-			maxCostUsd === undefined &&
-			maxToolCalls === undefined &&
-			maxSubagents === undefined
-		) {
-			return undefined;
-		}
-		return {
-			maxWallTimeMs,
-			maxInputTokens,
-			maxOutputTokens,
-			maxTotalTokens,
-			maxCostUsd,
-			maxToolCalls,
-			maxSubagents,
-			warnAtRatio,
+		const policy: RunBudgetPolicy = {
+			maxWallTimeMs: s.get("task.budget.maxWallTimeMs") as number | undefined,
+			maxInputTokens: s.get("task.budget.maxInputTokens") as number | undefined,
+			maxOutputTokens: s.get("task.budget.maxOutputTokens") as number | undefined,
+			maxTotalTokens: s.get("task.budget.maxTotalTokens") as number | undefined,
+			maxCostUsd: s.get("task.budget.maxCostUsd") as number | undefined,
+			maxToolCalls: s.get("task.budget.maxToolCalls") as number | undefined,
+			maxSubagents: s.get("task.budget.maxSubagents") as number | undefined,
+			warnAtRatio: s.get("task.budget.warnAtRatio") as number | undefined,
 		};
+		const hasLimit =
+			policy.maxWallTimeMs !== undefined ||
+			policy.maxInputTokens !== undefined ||
+			policy.maxOutputTokens !== undefined ||
+			policy.maxTotalTokens !== undefined ||
+			policy.maxCostUsd !== undefined ||
+			policy.maxToolCalls !== undefined ||
+			policy.maxSubagents !== undefined;
+		return hasLimit ? policy : undefined;
 	}
 
 	consumeNextToolChoiceOverride(): ToolChoice | undefined {

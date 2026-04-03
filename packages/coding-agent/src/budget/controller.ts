@@ -161,39 +161,16 @@ export class BudgetController {
 	}
 
 	#checkThresholds(): void {
-		const wallTimeMs = this.#startTimeMs ? Date.now() - this.#startTimeMs : 0;
-		const { overallStatus, reason } = this.#evaluate(wallTimeMs);
+		const snapshot = this.getSnapshot();
 
-		if (overallStatus === "exceeded" && !this.#exceededFired) {
+		if (snapshot.status === "exceeded" && !this.#exceededFired) {
 			this.#exceededFired = true;
-			const snapshot: BudgetSnapshot = {
-				status: "exceeded",
-				wallTimeMs,
-				inputTokens: this.#inputTokens,
-				outputTokens: this.#outputTokens,
-				totalTokens: this.#totalTokens,
-				costUsd: this.#costUsd,
-				toolCalls: this.#toolCalls,
-				subagents: this.#subagents,
-				reason,
-			};
 			this.#emit({ type: "budget_exceeded", scope: this.#scope, snapshot });
 			return;
 		}
 
-		if (overallStatus === "warning" && reason && !this.#warnedDimensions.has(reason)) {
-			this.#warnedDimensions.add(reason);
-			const snapshot: BudgetSnapshot = {
-				status: "warning",
-				wallTimeMs,
-				inputTokens: this.#inputTokens,
-				outputTokens: this.#outputTokens,
-				totalTokens: this.#totalTokens,
-				costUsd: this.#costUsd,
-				toolCalls: this.#toolCalls,
-				subagents: this.#subagents,
-				reason,
-			};
+		if (snapshot.status === "warning" && snapshot.reason && !this.#warnedDimensions.has(snapshot.reason)) {
+			this.#warnedDimensions.add(snapshot.reason);
 			this.#emit({ type: "budget_warning", scope: this.#scope, snapshot });
 		}
 	}

@@ -318,12 +318,12 @@ export class OtelTelemetryAdapter implements RuntimeTelemetryAdapter {
 		parentKey: string | undefined,
 		attributes: TelemetrySpan["attributes"],
 	): TelemetrySpan {
-		const parentSpanId =
-			parentKey === "session"
-				? this.#sessionSpanId
-				: parentKey
-					? this.#openSpans.get(parentKey)?.span.spanId
-					: undefined;
+		let parentSpanId: string | undefined;
+		if (parentKey === "session") {
+			parentSpanId = this.#sessionSpanId;
+		} else if (parentKey) {
+			parentSpanId = this.#openSpans.get(parentKey)?.span.spanId;
+		}
 
 		const span: TelemetrySpan = {
 			spanId: newSpanId(),
@@ -364,10 +364,11 @@ export class OtelTelemetryAdapter implements RuntimeTelemetryAdapter {
 
 	/** Emit a zero-duration span for point-in-time events (e.g. ttsr_triggered). */
 	#emitInstant(name: string, parentKey: string | undefined, attributes: TelemetrySpan["attributes"]): void {
-		const span = this.#startSpan(`instant:${name}:${Date.now()}`, name, parentKey, attributes);
+		const key = `instant:${name}:${Date.now()}`;
+		const span = this.#startSpan(key, name, parentKey, attributes);
 		span.endTimeMs = span.startTimeMs;
 		span.status = "ok";
-		this.#openSpans.delete(`instant:${name}:${span.startTimeMs}`);
+		this.#openSpans.delete(key);
 		this.#completedSpans.push(span);
 	}
 
