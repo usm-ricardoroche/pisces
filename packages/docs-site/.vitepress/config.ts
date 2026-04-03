@@ -172,8 +172,8 @@ export default defineConfig({
 		},
 
 		footer: {
-			message: "MIT License",
-			copyright: "Copyright © can1357",
+			message: "MIT License · Fork of <a href='https://github.com/can1357/oh-my-pi'>oh-my-pi</a>, itself a fork of <a href='https://github.com/can1357/pi-coding-agent'>pi-coding-agent</a>",
+			copyright: "Copyright &copy; usm-ricardoroche",
 		},
 	},
 });
