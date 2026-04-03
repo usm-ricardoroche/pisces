@@ -47,6 +47,68 @@ export const taskItemSchema = Type.Object({
 });
 export type TaskItem = Static<typeof taskItemSchema>;
 
+export type VerificationMode = "none" | "command" | "lsp" | "profile";
+export type VerificationFailurePolicy = "return_failure" | "retry_once" | "discard_patch";
+
+export interface VerificationCommand {
+	name: string;
+	command: string;
+	timeoutMs?: number;
+	optional?: boolean;
+}
+
+export interface TaskVerifyConfig {
+	profile?: string;
+	mode?: VerificationMode;
+	commands?: VerificationCommand[];
+	lspDiagnostics?: boolean;
+	maxRetries?: number;
+	onFailure?: VerificationFailurePolicy;
+}
+
+const verificationModeSchema = Type.Union([
+	Type.Literal("none"),
+	Type.Literal("command"),
+	Type.Literal("lsp"),
+	Type.Literal("profile"),
+]);
+
+const verificationFailurePolicySchema = Type.Union([
+	Type.Literal("return_failure"),
+	Type.Literal("retry_once"),
+	Type.Literal("discard_patch"),
+]);
+
+const verificationCommandSchema = Type.Object({
+	name: Type.String({ description: "Short label for the verification command" }),
+	command: Type.String({ description: "Shell command to run inside the isolated workspace" }),
+	timeoutMs: Type.Optional(Type.Number({ minimum: 1, description: "Optional timeout override in milliseconds" })),
+	optional: Type.Optional(Type.Boolean({ description: "If true, non-zero exit does not fail verification" })),
+});
+
+export const taskVerifySchema = Type.Union([
+	Type.Boolean({ description: "Enable or disable verification for this isolated task batch" }),
+	Type.String({ description: "Named verification profile to run for this isolated task batch" }),
+	Type.Object(
+		{
+			profile: Type.Optional(Type.String({ description: "Named verification profile to resolve from settings" })),
+			mode: Type.Optional(verificationModeSchema),
+			commands: Type.Optional(
+				Type.Array(verificationCommandSchema, {
+					description: "Commands to run inside the isolated workspace after the subagent finishes",
+				}),
+			),
+			lspDiagnostics: Type.Optional(
+				Type.Boolean({ description: "Also require LSP diagnostics to be clean (planned; not yet implemented)" }),
+			),
+			maxRetries: Type.Optional(Type.Number({ minimum: 0, description: "Maximum bounded repair retries" })),
+			onFailure: Type.Optional(verificationFailurePolicySchema),
+		},
+		{ description: "Inline verification override merged with default/profile verification settings" },
+	),
+]);
+export type TaskVerifyOption = Static<typeof taskVerifySchema>;
+
 const createTaskSchema = (options: { isolationEnabled: boolean }) => {
 	const properties = {
 		agent: Type.String({ description: "Agent type for all tasks in this batch" }),
@@ -76,6 +138,7 @@ const createTaskSchema = (options: { isolationEnabled: boolean }) => {
 					description: "Run in isolated environment; returns patches. Use when tasks edit overlapping files.",
 				}),
 			),
+			verify: Type.Optional(taskVerifySchema),
 		});
 	}
 
@@ -152,6 +215,36 @@ export interface AgentProgress {
 	extractedToolData?: Record<string, unknown[]>;
 }
 
+export interface VerificationCommandResult {
+	name: string;
+	command: string;
+	exitCode: number;
+	durationMs: number;
+	optional?: boolean;
+	timedOut?: boolean;
+	artifactPath?: string;
+	outputPreview?: string;
+}
+
+export interface VerificationAttemptResult {
+	attempt: number;
+	status: "passed" | "failed" | "skipped";
+	startedAt: number;
+	endedAt: number;
+	commandResults: VerificationCommandResult[];
+	error?: string;
+}
+
+export interface VerificationResult {
+	requested: boolean;
+	profile?: string;
+	mode?: VerificationMode;
+	status: "not_requested" | "passed" | "retried_passed" | "failed" | "skipped";
+	attempts: VerificationAttemptResult[];
+	retriesUsed: number;
+	onFailure?: VerificationFailurePolicy;
+}
+
 /** Result from a single agent execution */
 export interface SingleResult {
 	index: number;
@@ -172,6 +265,7 @@ export interface SingleResult {
 	error?: string;
 	aborted?: boolean;
 	abortReason?: string;
+	verification?: VerificationResult;
 	/** Aggregated usage from the subprocess, accumulated incrementally from message_end events. */
 	usage?: Usage;
 	/** Output path for the task result */

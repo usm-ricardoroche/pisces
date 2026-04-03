@@ -866,6 +866,37 @@ function renderAgentResult(result: SingleResult, isLast: boolean, expanded: bool
 		lines.push(...deferredToolLines);
 	}
 
+	if (result.verification?.requested) {
+		const v = result.verification;
+		const verifyColor =
+			v.status === "passed" || v.status === "retried_passed" ? "success" : v.status === "failed" ? "error" : "dim";
+		const verifyLabel =
+			v.status === "passed"
+				? "verify: passed"
+				: v.status === "retried_passed"
+					? "verify: passed (after repair)"
+					: v.status === "failed"
+						? "verify: failed"
+						: v.status === "skipped"
+							? "verify: skipped"
+							: `verify: ${v.status}`;
+		const profileSuffix = v.profile ? ` (${v.profile})` : "";
+		lines.push(`${continuePrefix}${theme.fg(verifyColor, verifyLabel + profileSuffix)}`);
+		if (v.status === "failed") {
+			const lastAttempt = v.attempts[v.attempts.length - 1];
+			if (lastAttempt) {
+				for (const cmd of lastAttempt.commandResults) {
+					if (cmd.exitCode !== 0 && cmd.optional !== true) {
+						const cmdLine = cmd.outputPreview
+							? `  ${cmd.name}: ${truncateToWidth(replaceTabs(cmd.outputPreview.split("\n")[0] ?? ""), 60)}`
+							: `  ${cmd.name}: exited ${cmd.exitCode}`;
+						lines.push(`${continuePrefix}${theme.fg("error", cmdLine)}`);
+					}
+				}
+			}
+		}
+	}
+
 	if (result.patchPath && !aborted && result.exitCode === 0) {
 		lines.push(`${continuePrefix}${theme.fg("dim", `Patch: ${result.patchPath}`)}`);
 	} else if (result.branchName && !aborted && result.exitCode === 0) {

@@ -12,6 +12,7 @@ import { LspTool } from "../lsp";
 import type { DiscoverableMCPSearchIndex, DiscoverableMCPTool } from "../mcp/discoverable-tool-metadata";
 import { EditTool } from "../patch";
 import type { PlanModeState } from "../plan-mode/state";
+import type { AgentSessionEvent } from "../session/agent-session";
 import { TaskTool } from "../task";
 import type { AgentOutputManager } from "../task/output-manager";
 import type { EventBus } from "../utils/event-bus";
@@ -181,6 +182,8 @@ export interface ToolSession {
 	getCheckpointState?: () => CheckpointState | undefined;
 	/** Set or clear active checkpoint state. */
 	setCheckpointState?: (state: CheckpointState | null) => void;
+	/** Emit a lifecycle event into the parent session's subscriber chain. */
+	emitEvent?: (event: AgentSessionEvent) => void;
 }
 
 type ToolFactory = (session: ToolSession) => Tool | null | Promise<Tool | null>;

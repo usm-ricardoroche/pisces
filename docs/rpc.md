@@ -311,6 +311,192 @@ stdin:
 { "type": "extension_ui_response", "id": "ui_7", "value": "feature/rpc-host" }
 ```
 
+## Task Tool: Isolated Execution and Verification
+
+The `task` built-in tool accepts an optional `verify` parameter when `isolated: true` is set.
+This parameter enables post-execution verification of the subagent's changes before the patch
+or branch is surfaced to the caller.
+
+### `verify` parameter shapes
+
+```typescript
+// Disable explicitly (also the default when omitted)
+verify: false
+
+// Use the named profile from task.verification.profiles
+verify: true          // uses task.verification.defaultProfile
+verify: "ci"          // uses the "ci" profile
+
+// Fully inline — no profile lookup required
+verify: {
+  commands: [
+    { name: "typecheck", command: "bun check:ts", timeoutMs: 120000 },
+    { name: "tests",     command: "bun test",     timeoutMs: 300000, optional: true }
+  ],
+  onFailure: "return_failure"   // or "discard_patch"
+}
+
+// Profile base + inline override
+verify: {
+  profile: "ci",
+  commands: [{ name: "extra", command: "bun lint" }]
+}
+```
+
+Verification only runs after a **successful subagent exit** (`exitCode === 0`) in an isolated task.
+If the subagent itself fails, verification is recorded as `skipped`.
+
+### `VerificationResult` in `SingleResult`
+
+```typescript
+interface VerificationResult {
+  requested: boolean;
+  profile?:  string;
+  mode?:     "none" | "command";
+  status:    "not_requested" | "passed" | "failed" | "skipped";
+  attempts:  VerificationAttemptResult[];
+  retriesUsed: number;
+  onFailure?: "return_failure" | "retry_once" | "discard_patch";
+}
+
+interface VerificationAttemptResult {
+  attempt:        number;
+  status:         "passed" | "failed" | "skipped";
+  startedAt:      number;   // epoch ms
+  endedAt:        number;
+  commandResults: VerificationCommandResult[];
+  error?:         string;
+}
+
+interface VerificationCommandResult {
+  name:          string;
+  command:       string;
+  exitCode:      number;
+  durationMs:    number;
+  optional?:     boolean;
+  timedOut?:     boolean;
+  artifactPath?: string;    // written to the task artifacts directory
+  outputPreview?: string;   // last ~20 lines / 4 KB of combined stdout+stderr
+}
+```
+
+### Behaviour on failure
+
+| `onFailure` | Patch captured? | `exitCode` in result |
+| --- | --- | --- |
+| `return_failure` (default) | yes, patch included | `1` |
+| `discard_patch` | no | `1` |
+
+### Settings
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `task.verification.enabled` | boolean | `false` | Master switch for verification features |
+| `task.verification.defaultProfile` | string | `""` | Profile used when `verify: true` or `verify: ""` |
+| `task.verification.requireForIsolated` | boolean | `false` | Auto-require verification on every isolated task |
+| `task.verification.maxRetries` | number | `1` | Global default for bounded repair retries |
+| `task.verification.failureContextLineLimit` | number | `200` | Lines preserved in repair context |
+| `task.verification.profiles` | record | `{}` | Named profile objects (`TaskVerifyConfig`) |
+
+### Profile configuration example (`omp.jsonc`)
+
+```jsonc
+{
+  "task.verification.enabled": true,
+  "task.verification.defaultProfile": "ci",
+  "task.verification.profiles": {
+    "ci": {
+      "mode": "command",
+      "commands": [
+        { "name": "typecheck", "command": "bun check:ts", "timeoutMs": 120000 },
+        { "name": "lint",      "command": "bun lint:ts",  "timeoutMs": 60000 }
+      ],
+      "onFailure": "return_failure"
+    }
+  }
+}
+```
+
+
+
+
+## Subagent Lifecycle Events
+
+When a task tool dispatches subagents, it emits structured lifecycle events through the same RPC event stream.
+These events are visible to SDK subscribers and RPC consumers without any additional setup.
+
+### `subagent_start`
+
+Emitted immediately before a subagent subprocess is started.
+
+```ts
+{ type: "subagent_start"; id: string; agent: string; isolated: boolean }
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Task item ID (stable across retries) |
+| `agent` | string | Agent name |
+| `isolated` | boolean | Whether running in an isolated worktree |
+
+### `subagent_end`
+
+Emitted after a subagent subprocess finishes and its verification result (if any) is fully resolved.
+
+```ts
+{ type: "subagent_end"; id: string; agent: string; exitCode: number; verification?: VerificationResult }
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Task item ID |
+| `agent` | string | Agent name |
+| `exitCode` | number | Subprocess exit code |
+| `verification` | `VerificationResult \| undefined` | Attached if verification was requested |
+
+### `subagent_verification_start`
+
+Emitted before the first command of a verification attempt runs.
+
+```ts
+{ type: "subagent_verification_start"; id: string; attempt: number; profile?: string }
+```
+
+### `subagent_verification_command_start`
+
+Emitted just before each individual verification command spawns.
+
+```ts
+{ type: "subagent_verification_command_start"; id: string; attempt: number; commandName: string }
+```
+
+### `subagent_verification_command_end`
+
+Emitted after each verification command exits.
+
+```ts
+{
+  type: "subagent_verification_command_end";
+  id: string;
+  attempt: number;
+  commandName: string;
+  exitCode: number;
+  durationMs: number;
+  artifactId?: string;  // artifact path when command produced output
+}
+```
+
+### `subagent_verification_end`
+
+Emitted after all commands in a verification attempt have run.
+
+```ts
+{ type: "subagent_verification_end"; id: string; attempt: number; status: "passed" | "failed" | "skipped" | "budget_exceeded" }
+```
+
+All six event types appear in the `AgentSessionEvent` union and are forwarded through the existing RPC stream.
+No new transport or subscription channel is needed.
+
 ## Notes on `RpcClient` helper
 
 `src/modes/rpc/rpc-client.ts` is a convenience wrapper, not the protocol definition.

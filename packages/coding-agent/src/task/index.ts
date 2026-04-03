@@ -23,8 +23,10 @@ import { resolveAgentModelPatterns } from "../config/model-resolver";
 import { renderPromptTemplate } from "../config/prompt-templates";
 import type { Theme } from "../modes/theme/theme";
 import planModeSubagentPrompt from "../prompts/system/plan-mode-subagent.md" with { type: "text" };
+import taskVerificationRepairTemplate from "../prompts/task/task-verification-repair.md" with { type: "text" };
 import taskDescriptionTemplate from "../prompts/tools/task.md" with { type: "text" };
 import taskSummaryTemplate from "../prompts/tools/task-summary.md" with { type: "text" };
+import type { AgentSessionEvent } from "../session/agent-session";
 import { formatBytes, formatDuration } from "../tools/render-utils";
 // Import review tools for side effects (registers subagent tool handlers)
 import "../tools/review";
@@ -44,8 +46,13 @@ import {
 	type TaskParams,
 	type TaskSchema,
 	type TaskToolDetails,
+	type TaskVerifyConfig,
 	taskSchema,
 	taskSchemaNoIsolation,
+	type VerificationAttemptResult,
+	type VerificationCommand,
+	type VerificationFailurePolicy,
+	type VerificationResult,
 } from "./types";
 import {
 	applyBaseline,
@@ -102,6 +109,294 @@ function addUsageTotals(target: Usage, usage: Partial<Usage>): void {
 	target.cost.cacheRead += cost.cacheRead;
 	target.cost.cacheWrite += cost.cacheWrite;
 	target.cost.total += cost.total;
+}
+
+interface ResolvedTaskVerification {
+	requested: boolean;
+	profile?: string;
+	mode: "none" | "command";
+	commands: VerificationCommand[];
+	maxRetries: number;
+	onFailure: VerificationFailurePolicy;
+	error?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeVerificationCommand(value: unknown): VerificationCommand | undefined {
+	if (!isRecord(value)) return undefined;
+	const name = typeof value.name === "string" ? value.name.trim() : "";
+	const command = typeof value.command === "string" ? value.command.trim() : "";
+	if (!name || !command) return undefined;
+	const timeoutMs = typeof value.timeoutMs === "number" && value.timeoutMs > 0 ? value.timeoutMs : undefined;
+	const optional = value.optional === true ? true : undefined;
+	return { name, command, timeoutMs, optional };
+}
+
+function normalizeTaskVerifyConfig(value: unknown): TaskVerifyConfig | undefined {
+	if (!isRecord(value)) return undefined;
+	const profile = typeof value.profile === "string" && value.profile.trim() ? value.profile.trim() : undefined;
+	const mode =
+		value.mode === "none" || value.mode === "command" || value.mode === "lsp" || value.mode === "profile"
+			? value.mode
+			: undefined;
+	const commands = Array.isArray(value.commands)
+		? value.commands
+				.map(normalizeVerificationCommand)
+				.filter((command): command is VerificationCommand => Boolean(command))
+		: undefined;
+	const lspDiagnostics = value.lspDiagnostics === true ? true : undefined;
+	const maxRetries = typeof value.maxRetries === "number" && value.maxRetries >= 0 ? value.maxRetries : undefined;
+	const onFailure =
+		value.onFailure === "return_failure" || value.onFailure === "retry_once" || value.onFailure === "discard_patch"
+			? value.onFailure
+			: undefined;
+	return { profile, mode, commands, lspDiagnostics, maxRetries, onFailure };
+}
+
+function mergeTaskVerifyConfig(
+	base: TaskVerifyConfig | undefined,
+	override: TaskVerifyConfig | undefined,
+): TaskVerifyConfig {
+	return {
+		profile: override?.profile ?? base?.profile,
+		mode: override?.mode ?? base?.mode,
+		commands: override?.commands ?? base?.commands,
+		lspDiagnostics: override?.lspDiagnostics ?? base?.lspDiagnostics,
+		maxRetries: override?.maxRetries ?? base?.maxRetries,
+		onFailure: override?.onFailure ?? base?.onFailure,
+	};
+}
+
+function resolveTaskVerification(
+	params: TaskParams,
+	settings: ToolSession["settings"],
+	isIsolated: boolean,
+): ResolvedTaskVerification {
+	const verify = "verify" in params ? params.verify : undefined;
+	const verificationEnabled = settings.get("task.verification.enabled") === true;
+	const requireForIsolated = settings.get("task.verification.requireForIsolated") === true;
+	const defaultProfileValue = settings.get("task.verification.defaultProfile");
+	const defaultProfile =
+		typeof defaultProfileValue === "string" && defaultProfileValue.trim() ? defaultProfileValue.trim() : undefined;
+	const maxRetriesValue = settings.get("task.verification.maxRetries");
+	const maxRetries = typeof maxRetriesValue === "number" && maxRetriesValue >= 0 ? maxRetriesValue : 1;
+	const notRequested: ResolvedTaskVerification = {
+		requested: false,
+		mode: "none",
+		commands: [],
+		maxRetries,
+		onFailure: "return_failure",
+	};
+	if (!isIsolated) {
+		if (verify !== undefined && verify !== false) {
+			return {
+				...notRequested,
+				error: "Verification requires isolated task execution. Pass isolated: true or disable verify.",
+			};
+		}
+		return notRequested;
+	}
+	if (verify === false) return notRequested;
+	let profileName: string | undefined;
+	let inlineConfig: TaskVerifyConfig | undefined;
+	if (verify === undefined) {
+		if (!(verificationEnabled && requireForIsolated)) return notRequested;
+		profileName = defaultProfile;
+	} else if (verify === true) {
+		profileName = defaultProfile;
+	} else if (typeof verify === "string") {
+		profileName = verify.trim() || defaultProfile;
+	} else {
+		inlineConfig = normalizeTaskVerifyConfig(verify);
+		profileName = inlineConfig?.profile ?? defaultProfile;
+	}
+	if (!profileName && !inlineConfig?.commands?.length) {
+		return {
+			...notRequested,
+			error: "Verification requested but no verification profile or commands were provided.",
+		};
+	}
+	const profileMapValue = settings.get("task.verification.profiles");
+	const profileMap = isRecord(profileMapValue) ? profileMapValue : {};
+	let profileConfig: TaskVerifyConfig | undefined;
+	if (profileName) {
+		profileConfig = normalizeTaskVerifyConfig(profileMap[profileName]);
+		if (!profileConfig) {
+			return {
+				...notRequested,
+				error: `Unknown or invalid verification profile "${profileName}".`,
+			};
+		}
+	}
+	const merged = mergeTaskVerifyConfig(profileConfig, inlineConfig);
+	if (merged.mode === "none") return notRequested;
+	if (merged.mode === "lsp" || merged.mode === "profile" || merged.lspDiagnostics === true) {
+		return {
+			...notRequested,
+			error: "LSP-based task verification is not implemented yet. Use command checks for now.",
+		};
+	}
+	const commands = merged.commands ?? [];
+	if (commands.length === 0) {
+		return {
+			...notRequested,
+			error: "Verification requires at least one command. Provide verify.commands or configure task.verification.profiles.",
+		};
+	}
+	return {
+		requested: true,
+		profile: profileName,
+		mode: "command",
+		commands,
+		maxRetries: merged.maxRetries ?? maxRetries,
+		onFailure: merged.onFailure ?? "return_failure",
+	};
+}
+
+function _getVerificationShellCommand(command: string): string[] {
+	if (process.platform === "win32") {
+		return ["cmd.exe", "/d", "/s", "/c", command];
+	}
+	return ["bash", "-lc", command];
+}
+
+function sanitizeArtifactToken(value: string): string {
+	const sanitized = value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+	return sanitized || "check";
+}
+
+function buildVerificationFailureMessage(verification: VerificationResult): string {
+	const attempt = verification.attempts[verification.attempts.length - 1];
+	if (!attempt) return "Verification failed.";
+	const failedCommands = attempt.commandResults
+		.filter(result => result.exitCode !== 0 && result.optional !== true)
+		.map(result => result.name);
+	if (failedCommands.length === 0) return attempt.error || "Verification failed.";
+	return `Verification failed: ${failedCommands.join(", ")}`;
+}
+
+async function runVerificationAttempt(
+	verification: ResolvedTaskVerification,
+	options: {
+		cwd: string;
+		artifactsDir: string;
+		taskId: string;
+		signal?: AbortSignal;
+		attemptNumber: number;
+		onEvent?: (event: AgentSessionEvent) => void;
+	},
+): Promise<VerificationAttemptResult> {
+	const startedAt = Date.now();
+	const commandResults = [];
+	let failed = false;
+	options.onEvent?.({
+		type: "subagent_verification_start",
+		id: options.taskId,
+		attempt: options.attemptNumber,
+		profile: verification.profile,
+	});
+	for (let index = 0; index < verification.commands.length; index++) {
+		const command = verification.commands[index];
+		const cmdStart = Date.now();
+		options.onEvent?.({
+			type: "subagent_verification_command_start",
+			id: options.taskId,
+			attempt: options.attemptNumber,
+			commandName: command.name,
+		});
+		const child = Bun.spawn(_getVerificationShellCommand(command.command), {
+			cwd: options.cwd,
+			stdout: "pipe",
+			stderr: "pipe",
+			signal: options.signal,
+			windowsHide: true,
+		});
+		let timedOut = false;
+		let timeoutId: NodeJS.Timeout | undefined;
+		if (command.timeoutMs) {
+			timeoutId = setTimeout(() => {
+				timedOut = true;
+				try {
+					child.kill();
+				} catch {}
+			}, command.timeoutMs);
+		}
+		const [stdout, stderr, exitCode] = await Promise.all([
+			child.stdout ? new Response(child.stdout).text() : Promise.resolve(""),
+			child.stderr ? new Response(child.stderr).text() : Promise.resolve(""),
+			child.exited,
+		]);
+		if (timeoutId) clearTimeout(timeoutId);
+		const combinedOutput = `${stdout}${stderr}`.trim();
+		const artifactName = sanitizeArtifactToken(command.name);
+		const artifactPath = path.join(
+			options.artifactsDir,
+			`${options.taskId}.verify.a${options.attemptNumber}-${index + 1}-${artifactName}.log`,
+		);
+		if (combinedOutput) {
+			await Bun.write(artifactPath, combinedOutput);
+		}
+		const outputPreview = combinedOutput ? combinedOutput.split("\n").slice(-20).join("\n").slice(-4000) : undefined;
+		const cmdExitCode = exitCode ?? (timedOut ? 124 : 0);
+		const cmdDurationMs = Date.now() - cmdStart;
+		const cmdArtifactId = combinedOutput ? artifactPath : undefined;
+		commandResults.push({
+			name: command.name,
+			command: command.command,
+			exitCode: cmdExitCode,
+			durationMs: cmdDurationMs,
+			optional: command.optional,
+			timedOut,
+			artifactPath: cmdArtifactId,
+			outputPreview,
+		});
+		options.onEvent?.({
+			type: "subagent_verification_command_end",
+			id: options.taskId,
+			attempt: options.attemptNumber,
+			commandName: command.name,
+			exitCode: cmdExitCode,
+			durationMs: cmdDurationMs,
+			artifactId: cmdArtifactId,
+		});
+		if (cmdExitCode !== 0 && command.optional !== true) {
+			failed = true;
+		}
+	}
+	const status = (failed ? "failed" : "passed") as "failed" | "passed";
+	options.onEvent?.({ type: "subagent_verification_end", id: options.taskId, attempt: options.attemptNumber, status });
+	return {
+		attempt: options.attemptNumber,
+		status,
+		startedAt,
+		endedAt: Date.now(),
+		commandResults,
+		error: failed ? "One or more verification commands failed." : undefined,
+	};
+}
+
+function buildRepairPrompt(task: string, attempt: VerificationAttemptResult, contextLineLimit: number): string {
+	const failedCommands = attempt.commandResults
+		.filter(r => r.exitCode !== 0 && r.optional !== true)
+		.map(r => ({
+			name: r.name,
+			command: r.command,
+			output: r.outputPreview
+				? r.outputPreview.split("\n").slice(-contextLineLimit).join("\n")
+				: "(no output captured)",
+		}));
+	const failureSummary = failedCommands.map(c => `- \`${c.name}\`: exited non-zero`).join("\n");
+	return renderPromptTemplate(taskVerificationRepairTemplate, {
+		task,
+		failureSummary,
+		failedCommands,
+	});
 }
 
 // Re-export types and utilities
@@ -457,6 +752,18 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 			};
 		}
 
+		const resolvedVerification = resolveTaskVerification(params, this.session.settings, isIsolated);
+		if (resolvedVerification.error) {
+			return {
+				content: [{ type: "text", text: resolvedVerification.error }],
+				details: {
+					projectAgentsDir,
+					results: [],
+					totalDurationMs: 0,
+				},
+			};
+		}
+
 		// Validate agent exists
 		const agent = getAgent(agents, agentName);
 		if (!agent) {
@@ -748,7 +1055,8 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 
 			const runTask = async (task: (typeof tasksWithContext)[number], index: number) => {
 				if (!isIsolated) {
-					return runSubprocess({
+					this.session.emitEvent?.({ type: "subagent_start", id: task.id, agent: agent.name, isolated: false });
+					const nonIsolatedResult = await runSubprocess({
 						cwd: this.session.cwd,
 						agent,
 						task: task.task,
@@ -782,139 +1090,346 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 						skills: availableSkills,
 						promptTemplates,
 					});
+					this.session.emitEvent?.({
+						type: "subagent_end",
+						id: task.id,
+						agent: agent.name,
+						exitCode: nonIsolatedResult.exitCode,
+					});
+					return nonIsolatedResult;
 				}
 
 				const taskStart = Date.now();
 				let isolationDir: string | undefined;
-				try {
-					if (!repoRoot || !baseline) {
-						throw new Error("Isolated task execution not initialized.");
-					}
-					const taskBaseline = structuredClone(baseline);
-
-					if (effectiveIsolationMode === "fuse-overlay") {
-						isolationDir = await ensureFuseOverlay(repoRoot, task.id);
-					} else if (effectiveIsolationMode === "fuse-projfs") {
-						isolationDir = await ensureProjfsOverlay(repoRoot, task.id);
-					} else {
-						isolationDir = await ensureWorktree(repoRoot, task.id);
-						await applyBaseline(isolationDir, taskBaseline);
-					}
-
-					const result = await runSubprocess({
-						cwd: this.session.cwd,
-						worktree: isolationDir,
-						agent,
-						task: task.task,
-						assignment: task.assignment,
-						description: task.description,
-						index,
-						id: task.id,
-						taskDepth,
-						modelOverride,
-						thinkingLevel: thinkingLevelOverride,
-						outputSchema: effectiveOutputSchema,
-						sessionFile,
-						persistArtifacts: !!artifactsDir,
-						artifactsDir: effectiveArtifactsDir,
-						contextFile: contextFilePath,
-						enableLsp: false,
-						signal,
-						eventBus: undefined,
-						onProgress: progress => {
-							progressMap.set(index, {
-								...structuredClone(progress),
-							});
-							emitProgress();
-						},
-						authStorage: this.session.authStorage,
-						modelRegistry: this.session.modelRegistry,
-						searchDb: this.session.searchDb,
-						settings: this.session.settings,
-						mcpManager: this.session.mcpManager,
-						contextFiles,
-						skills: availableSkills,
-						promptTemplates,
-					});
-					if (mergeMode === "branch" && result.exitCode === 0) {
-						try {
-							const commitMsg =
-								commitStyle === "ai" && this.session.modelRegistry
-									? async (diff: string) => {
-											return generateCommitMessage(
-												diff,
-												this.session.modelRegistry!,
-												this.session.settings,
-												this.session.getSessionId?.() ?? undefined,
-											);
-										}
-									: undefined;
-							const commitResult = await commitToBranch(
-								isolationDir,
-								taskBaseline,
-								task.id,
-								task.description,
-								commitMsg,
-							);
-							return {
-								...result,
-								branchName: commitResult?.branchName,
-								nestedPatches: commitResult?.nestedPatches,
-							};
-						} catch (mergeErr) {
-							// Agent succeeded but branch commit failed — clean up stale branch
-							const branchName = `omp/task/${task.id}`;
-							await git.branch.tryDelete(repoRoot, branchName);
-							const msg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
-							return { ...result, error: `Merge failed: ${msg}` };
+				const isolatedResult = await (async () => {
+					try {
+						if (!repoRoot || !baseline) {
+							throw new Error("Isolated task execution not initialized.");
 						}
-					}
-					if (result.exitCode === 0) {
-						try {
+						const taskBaseline = structuredClone(baseline);
+
+						if (effectiveIsolationMode === "fuse-overlay") {
+							isolationDir = await ensureFuseOverlay(repoRoot, task.id);
+						} else if (effectiveIsolationMode === "fuse-projfs") {
+							isolationDir = await ensureProjfsOverlay(repoRoot, task.id);
+						} else {
+							isolationDir = await ensureWorktree(repoRoot, task.id);
+							await applyBaseline(isolationDir, taskBaseline);
+						}
+
+						const captureTaskPatch = async (baseResult: SingleResult): Promise<SingleResult> => {
+							if (!isolationDir) throw new Error("Isolated task execution not initialized.");
 							const delta = await captureDeltaPatch(isolationDir, taskBaseline);
 							const patchPath = path.join(effectiveArtifactsDir, `${task.id}.patch`);
 							await Bun.write(patchPath, delta.rootPatch);
 							return {
-								...result,
+								...baseResult,
 								patchPath,
 								nestedPatches: delta.nestedPatches,
 							};
-						} catch (patchErr) {
-							const msg = patchErr instanceof Error ? patchErr.message : String(patchErr);
-							return { ...result, error: `Patch capture failed: ${msg}` };
+						};
+						this.session.emitEvent?.({ type: "subagent_start", id: task.id, agent: agent.name, isolated: true });
+						let result = await runSubprocess({
+							cwd: this.session.cwd,
+							worktree: isolationDir,
+							agent,
+							task: task.task,
+							assignment: task.assignment,
+							description: task.description,
+							index,
+							id: task.id,
+							taskDepth,
+							modelOverride,
+							thinkingLevel: thinkingLevelOverride,
+							outputSchema: effectiveOutputSchema,
+							sessionFile,
+							persistArtifacts: !!artifactsDir,
+							artifactsDir: effectiveArtifactsDir,
+							contextFile: contextFilePath,
+							enableLsp: false,
+							signal,
+							eventBus: undefined,
+							onProgress: progress => {
+								progressMap.set(index, {
+									...structuredClone(progress),
+								});
+								emitProgress();
+							},
+							authStorage: this.session.authStorage,
+							modelRegistry: this.session.modelRegistry,
+							searchDb: this.session.searchDb,
+							settings: this.session.settings,
+							mcpManager: this.session.mcpManager,
+							contextFiles,
+							skills: availableSkills,
+							promptTemplates,
+						});
+						if (resolvedVerification.requested) {
+							const contextLineLimit = Number(
+								this.session.settings.get("task.verification.failureContextLineLimit") ?? 200,
+							);
+							if (result.exitCode === 0) {
+								const onFailurePolicy = resolvedVerification.onFailure;
+								const attempt1 = await runVerificationAttempt(resolvedVerification, {
+									cwd: isolationDir,
+									artifactsDir: effectiveArtifactsDir,
+									taskId: task.id,
+									signal,
+									attemptNumber: 1,
+									onEvent: this.session.emitEvent,
+								});
+								if (attempt1.status === "passed") {
+									result = {
+										...result,
+										verification: {
+											requested: true,
+											profile: resolvedVerification.profile,
+											mode: resolvedVerification.mode,
+											status: "passed",
+											attempts: [attempt1],
+											retriesUsed: 0,
+											onFailure: resolvedVerification.onFailure,
+										},
+									};
+								} else if (
+									resolvedVerification.onFailure === "retry_once" &&
+									resolvedVerification.maxRetries >= 1
+								) {
+									const repairTask = buildRepairPrompt(task.task, attempt1, contextLineLimit);
+									const repairResult = await runSubprocess({
+										cwd: this.session.cwd,
+										worktree: isolationDir,
+										agent,
+										task: repairTask,
+										assignment: task.assignment,
+										description: task.description,
+										index,
+										id: `${task.id}-repair`,
+										taskDepth,
+										modelOverride,
+										thinkingLevel: thinkingLevelOverride,
+										outputSchema: effectiveOutputSchema,
+										sessionFile,
+										persistArtifacts: !!artifactsDir,
+										artifactsDir: effectiveArtifactsDir,
+										contextFile: contextFilePath,
+										enableLsp: false,
+										signal,
+										eventBus: undefined,
+										onProgress: progress => {
+											progressMap.set(index, { ...structuredClone(progress) });
+											emitProgress();
+										},
+										authStorage: this.session.authStorage,
+										modelRegistry: this.session.modelRegistry,
+										searchDb: this.session.searchDb,
+										settings: this.session.settings,
+										mcpManager: this.session.mcpManager,
+										contextFiles,
+										skills: availableSkills,
+										promptTemplates,
+									});
+									if (repairResult.exitCode === 0) {
+										const attempt2 = await runVerificationAttempt(resolvedVerification, {
+											cwd: isolationDir,
+											artifactsDir: effectiveArtifactsDir,
+											taskId: task.id,
+											signal,
+											attemptNumber: 2,
+											onEvent: this.session.emitEvent,
+										});
+										result = {
+											...repairResult,
+											verification: {
+												requested: true,
+												profile: resolvedVerification.profile,
+												mode: resolvedVerification.mode,
+												status: attempt2.status === "passed" ? "retried_passed" : "failed",
+												attempts: [attempt1, attempt2],
+												retriesUsed: 1,
+												onFailure: resolvedVerification.onFailure,
+											},
+										};
+										if (attempt2.status === "passed") {
+											// repair succeeded — fall through to normal patch/branch capture
+										} else {
+											const verificationError = buildVerificationFailureMessage(result.verification!);
+											const failedResult: SingleResult = {
+												...result,
+												exitCode: 1,
+												stderr: verificationError,
+												error: verificationError,
+											};
+											if (onFailurePolicy === "discard_patch") return failedResult;
+											try {
+												return await captureTaskPatch(failedResult);
+											} catch (patchErr) {
+												const msg = patchErr instanceof Error ? patchErr.message : String(patchErr);
+												return { ...failedResult, error: `Patch capture failed: ${msg}` };
+											}
+										}
+									} else {
+										// repair subagent itself failed — keep original verification result
+										result = {
+											...result,
+											verification: {
+												requested: true,
+												profile: resolvedVerification.profile,
+												mode: resolvedVerification.mode,
+												status: "failed",
+												attempts: [attempt1],
+												retriesUsed: 1,
+												onFailure: resolvedVerification.onFailure,
+											},
+										};
+										const verificationError = buildVerificationFailureMessage(result.verification!);
+										const failedResult: SingleResult = {
+											...result,
+											exitCode: 1,
+											stderr: verificationError,
+											error: verificationError,
+										};
+										if (onFailurePolicy === "discard_patch") return failedResult;
+										try {
+											return await captureTaskPatch(failedResult);
+										} catch (patchErr) {
+											const msg = patchErr instanceof Error ? patchErr.message : String(patchErr);
+											return { ...failedResult, error: `Patch capture failed: ${msg}` };
+										}
+									}
+								} else {
+									// return_failure or discard_patch on first attempt
+									const verificationError = buildVerificationFailureMessage({
+										requested: true,
+										profile: resolvedVerification.profile,
+										mode: resolvedVerification.mode,
+										status: "failed",
+										attempts: [attempt1],
+										retriesUsed: 0,
+										onFailure: resolvedVerification.onFailure,
+									});
+									result = {
+										...result,
+										verification: {
+											requested: true,
+											profile: resolvedVerification.profile,
+											mode: resolvedVerification.mode,
+											status: "failed",
+											attempts: [attempt1],
+											retriesUsed: 0,
+											onFailure: resolvedVerification.onFailure,
+										},
+									};
+									const failedResult: SingleResult = {
+										...result,
+										exitCode: 1,
+										stderr: verificationError,
+										error: verificationError,
+									};
+									if (onFailurePolicy === "discard_patch") return failedResult;
+									try {
+										return await captureTaskPatch(failedResult);
+									} catch (patchErr) {
+										const msg = patchErr instanceof Error ? patchErr.message : String(patchErr);
+										return { ...failedResult, error: `Patch capture failed: ${msg}` };
+									}
+								}
+							} else {
+								// subagent failed before verification could run
+								result = {
+									...result,
+									verification: {
+										requested: true,
+										profile: resolvedVerification.profile,
+										mode: resolvedVerification.mode,
+										status: "skipped",
+										attempts: [],
+										retriesUsed: 0,
+										onFailure: resolvedVerification.onFailure,
+									},
+								};
+							}
+						}
+						if (mergeMode === "branch" && result.exitCode === 0) {
+							try {
+								const commitMsg =
+									commitStyle === "ai" && this.session.modelRegistry
+										? async (diff: string) => {
+												return generateCommitMessage(
+													diff,
+													this.session.modelRegistry!,
+													this.session.settings,
+													this.session.getSessionId?.() ?? undefined,
+												);
+											}
+										: undefined;
+								const commitResult = await commitToBranch(
+									isolationDir,
+									taskBaseline,
+									task.id,
+									task.description,
+									commitMsg,
+								);
+								return {
+									...result,
+									branchName: commitResult?.branchName,
+									nestedPatches: commitResult?.nestedPatches,
+								};
+							} catch (mergeErr) {
+								const branchName = `omp/task/${task.id}`;
+								await git.branch.tryDelete(repoRoot, branchName);
+								const msg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+								return { ...result, error: `Merge failed: ${msg}` };
+							}
+						}
+						if (result.exitCode === 0) {
+							try {
+								return await captureTaskPatch(result);
+							} catch (patchErr) {
+								const msg = patchErr instanceof Error ? patchErr.message : String(patchErr);
+								return { ...result, error: `Patch capture failed: ${msg}` };
+							}
+						}
+						return result;
+					} catch (err) {
+						const message = err instanceof Error ? err.message : String(err);
+						return {
+							index,
+							id: task.id,
+							agent: agent.name,
+							agentSource: agent.source,
+							task: task.task,
+							assignment: task.assignment,
+							description: task.description,
+							exitCode: 1,
+							output: "",
+							stderr: message,
+							truncated: false,
+							durationMs: Date.now() - taskStart,
+							tokens: 0,
+							modelOverride,
+							error: message,
+						};
+					} finally {
+						if (isolationDir) {
+							if (effectiveIsolationMode === "fuse-overlay") {
+								await cleanupFuseOverlay(isolationDir);
+							} else if (effectiveIsolationMode === "fuse-projfs") {
+								await cleanupProjfsOverlay(isolationDir);
+							} else {
+								await cleanupWorktree(isolationDir);
+							}
 						}
 					}
-					return result;
-				} catch (err) {
-					const message = err instanceof Error ? err.message : String(err);
-					return {
-						index,
-						id: task.id,
-						agent: agent.name,
-						agentSource: agent.source,
-						task: task.task,
-						assignment: task.assignment,
-						description: task.description,
-						exitCode: 1,
-						output: "",
-						stderr: message,
-						truncated: false,
-						durationMs: Date.now() - taskStart,
-						tokens: 0,
-						modelOverride,
-						error: message,
-					};
-				} finally {
-					if (isolationDir) {
-						if (effectiveIsolationMode === "fuse-overlay") {
-							await cleanupFuseOverlay(isolationDir);
-						} else if (effectiveIsolationMode === "fuse-projfs") {
-							await cleanupProjfsOverlay(isolationDir);
-						} else {
-							await cleanupWorktree(isolationDir);
-						}
-					}
-				}
+				})();
+				this.session.emitEvent?.({
+					type: "subagent_end",
+					id: task.id,
+					agent: agent.name,
+					exitCode: isolatedResult.exitCode,
+					verification: isolatedResult.verification,
+				});
+				return isolatedResult;
 			};
 
 			// Execute in parallel with concurrency limit
@@ -930,7 +1445,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 				if (result !== undefined) {
 					return result;
 				}
-				const task = tasksWithContext[index];
+				const task = tasksWithContext[index]!;
 				return {
 					index,
 					id: task.id,
