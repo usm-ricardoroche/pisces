@@ -25,6 +25,7 @@ import { AsyncJobManager } from "./async";
 import { createAutoresearchExtension } from "./autoresearch";
 import { loadCapability } from "./capability";
 import { type Rule, ruleCapability } from "./capability/rule";
+import type { SourceMeta } from "./capability/types";
 import { ModelRegistry } from "./config/model-registry";
 import { formatModelString, parseModelPattern, parseModelString, resolveModelRoleValue } from "./config/model-resolver";
 import {
@@ -37,6 +38,7 @@ import { CursorExecHandlers } from "./cursor";
 import "./discovery";
 import { resolveConfigValue } from "./config/resolve-config-value";
 import { initializeWithSettings } from "./discovery";
+import { buildRuleFromMarkdown } from "./discovery/helpers";
 import { TtsrManager } from "./export/ttsr";
 import {
 	type CustomCommandsLoadResult,
@@ -82,6 +84,9 @@ import {
 	summarizeDiscoverableMCPTools,
 } from "./mcp/discoverable-tool-metadata";
 import { buildMemoryToolDeveloperInstructions, getMemoryRoot, startMemoryStartupTask } from "./memories";
+import lobsterFilesystemBehaviorRule from "./prompts/rules/lobster/filesystem-behavior.md" with { type: "text" };
+import lobsterGitBehaviorRule from "./prompts/rules/lobster/git-behavior.md" with { type: "text" };
+import lobsterToolBehaviorRule from "./prompts/rules/lobster/tool-behavior.md" with { type: "text" };
 import asyncResultTemplate from "./prompts/tools/async-result.md" with { type: "text" };
 import { collectEnvSecrets, loadSecrets, obfuscateMessages, SecretObfuscator } from "./secrets";
 import { AgentSession } from "./session/agent-session";
@@ -774,10 +779,42 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		async () => {
 			const ttsrSettings = settings.getGroup("ttsr");
 			const ttsrManager = new TtsrManager(ttsrSettings);
-			const rulesResult =
+			const discoveredRulesResult =
 				options.rules !== undefined
 					? { items: options.rules, warnings: undefined }
 					: await loadCapability<Rule>(ruleCapability.id, { cwd });
+			// Inject lobster TTSR rules when lobsterMode is active
+			const rulesResult = settings.get("pisces.lobsterMode")
+				? (() => {
+						const lobsterSource: SourceMeta = {
+							provider: "pisces:lobster",
+							providerName: "Pisces Lobster",
+							path: "embedded:lobster",
+							level: "user",
+						};
+						const lobsterRules = [
+							buildRuleFromMarkdown(
+								"lobster-tool-behavior",
+								lobsterToolBehaviorRule,
+								"embedded:lobster/tool-behavior.md",
+								lobsterSource,
+							),
+							buildRuleFromMarkdown(
+								"lobster-filesystem-behavior",
+								lobsterFilesystemBehaviorRule,
+								"embedded:lobster/filesystem-behavior.md",
+								lobsterSource,
+							),
+							buildRuleFromMarkdown(
+								"lobster-git-behavior",
+								lobsterGitBehaviorRule,
+								"embedded:lobster/git-behavior.md",
+								lobsterSource,
+							),
+						];
+						return { ...discoveredRulesResult, items: [...discoveredRulesResult.items, ...lobsterRules] };
+					})()
+				: discoveredRulesResult;
 			const registeredTtsrRuleNames = new Set<string>();
 			for (const rule of rulesResult.items) {
 				if (rule.condition && rule.condition.length > 0) {

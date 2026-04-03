@@ -12,6 +12,7 @@ export const PRESETS: Record<Exclude<PresetName, "default">, Partial<Record<Sett
 		"stt.enabled": false,
 		"memories.enabled": false,
 		"startup.quiet": true,
+		"ttsr.enabled": true,
 	},
 	headless: {
 		"autoresearch.enabled": false,
