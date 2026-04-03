@@ -262,6 +262,16 @@ export interface SessionInfo {
 	allMessagesText: string;
 }
 
+/** JSON-serializable session summary for --list-sessions output. */
+export interface SessionListEntry {
+	id: string;
+	parentSession: string | null;
+	timestamp: string;
+	title: string | null;
+	path: string;
+	messageCount: number;
+}
+
 export type ReadonlySessionManager = Pick<
 	SessionManager,
 	| "getCwd"
@@ -2721,5 +2731,27 @@ export class SessionManager {
 		} catch {
 			return [];
 		}
+	}
+	/**
+	 * List sessions for a cwd as a JSON-serializable array.
+	 * Includes parent chain links for session tree reconstruction.
+	 *
+	 * @param cwd Working directory to list sessions for.
+	 * @param sessionDir Optional session directory override.
+	 */
+	static async listAsJson(
+		cwd: string,
+		sessionDir?: string,
+		storage: SessionStorage = new FileSessionStorage(),
+	): Promise<SessionListEntry[]> {
+		const sessions = await SessionManager.list(cwd, sessionDir, storage);
+		return sessions.map(s => ({
+			id: s.id,
+			parentSession: s.parentSessionPath ?? null,
+			timestamp: s.created.toISOString(),
+			title: s.title ?? null,
+			path: s.path,
+			messageCount: s.messageCount,
+		}));
 	}
 }

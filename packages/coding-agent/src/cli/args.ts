@@ -50,6 +50,8 @@ export interface Args {
 	agent?: string;
 	/** Skip ambient provider auto-discovery (Bedrock, Ollama, LM Studio, GitHub Copilot) */
 	noProviderDiscovery?: boolean;
+	/** List sessions for current cwd as JSON and exit. */
+	listSessions?: boolean;
 	messages: string[];
 	fileArgs: string[];
 	/** Unknown flags (potentially extension flags) - map of flag name to value */
@@ -185,6 +187,8 @@ export function parseArgs(args: string[], extensionFlags?: Map<string, { type: "
 			result.agent = arg.slice(8);
 		} else if (arg === "--no-provider-discovery") {
 			result.noProviderDiscovery = true;
+		} else if (arg === "--list-sessions") {
+			result.listSessions = true;
 		} else if (arg === "--skills" && i + 1 < args.length) {
 			// Comma-separated glob patterns for skill filtering
 			result.skills = args[++i].split(",").map(s => s.trim());
