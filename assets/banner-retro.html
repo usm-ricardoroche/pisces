@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pisces — Retro</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=VT323&family=Press+Start+2P&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #1a0a2e;
+      font-family: 'VT323', 'Courier New', monospace;
+    }
+
+    /* scanlines */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(0,0,0,0.12) 0px,
+        rgba(0,0,0,0.12) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    .wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 50%, #2d1b5e 0%, #1a0a2e 70%),
+        repeating-linear-gradient(
+          90deg,
+          rgba(255,100,220,0.03) 0px, rgba(255,100,220,0.03) 1px,
+          transparent 1px, transparent 60px
+        ),
+        repeating-linear-gradient(
+          0deg,
+          rgba(100,220,255,0.03) 0px, rgba(100,220,255,0.03) 1px,
+          transparent 1px, transparent 60px
+        );
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* double-line border box */
+    .border-outer {
+      position: absolute;
+      inset: 20px;
+      border: 3px solid #ff79c6;
+      box-shadow: 0 0 0 6px #1a0a2e, 0 0 0 9px #bd93f9, inset 0 0 0 6px #1a0a2e, inset 0 0 0 9px #bd93f9;
+    }
+
+    /* corner glyphs */
+    .corner {
+      position: absolute;
+      font-size: 28px;
+      line-height: 1;
+      color: #ff79c6;
+      text-shadow: 0 0 8px #ff79c6;
+    }
+    .corner.tl { top: 24px; left: 28px; }
+    .corner.tr { top: 24px; right: 28px; }
+    .corner.bl { bottom: 24px; left: 28px; }
+    .corner.br { bottom: 24px; right: 28px; }
+
+    .content {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+
+    /* pixel-art pi */
+    .pi-wrap {
+      position: relative;
+      margin-bottom: 28px;
+    }
+    .pi-wrap svg {
+      filter:
+        drop-shadow(0 0 6px #ff79c6)
+        drop-shadow(0 0 16px #bd93f9);
+    }
+
+    .title {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 38px;
+      letter-spacing: 0.15em;
+      color: #f1fa8c;
+      text-shadow:
+        3px 3px 0 #ff79c6,
+        6px 6px 0 #bd93f9,
+        0 0 20px #f1fa8c88;
+      margin-bottom: 18px;
+    }
+
+    .subtitle {
+      font-family: 'VT323', monospace;
+      font-size: 28px;
+      letter-spacing: 0.4em;
+      color: #8be9fd;
+      text-shadow: 0 0 10px #8be9fd99;
+      margin-bottom: 28px;
+    }
+
+    .tags {
+      display: flex;
+      gap: 0;
+    }
+    .tag {
+      font-family: 'VT323', monospace;
+      font-size: 22px;
+      letter-spacing: 0.1em;
+      padding: 4px 14px;
+      border: 2px solid;
+      color: #50fa7b;
+      border-color: #50fa7b;
+      text-shadow: 0 0 8px #50fa7b99;
+      box-shadow: 0 0 6px #50fa7b44;
+    }
+    .tag + .tag {
+      border-left: none;
+    }
+
+    /* stars */
+    .stars {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .star {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: white;
+      animation: twinkle var(--d) ease-in-out infinite alternate;
+      opacity: var(--o);
+    }
+    @keyframes twinkle {
+      from { opacity: var(--o); }
+      to   { opacity: calc(var(--o) * 0.2); }
+    }
+
+    /* pisces constellation lines */
+    .constellation {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    /* small pixel fish emoji rows */
+    .fish-row {
+      position: absolute;
+      font-size: 18px;
+      opacity: 0.18;
+      letter-spacing: 12px;
+    }
+    .fish-row.top    { top: 48px;    left: 50%; transform: translateX(-50%); }
+    .fish-row.bottom { bottom: 48px; left: 50%; transform: translateX(-50%); }
+
+    /* bottom band */
+    .band {
+      position: absolute;
+      bottom: 38px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'VT323', monospace;
+      font-size: 19px;
+      letter-spacing: 0.25em;
+      color: #ff79c666;
+      white-space: nowrap;
+    }
+
+    /* blinking cursor */
+    .cursor {
+      display: inline-block;
+      width: 12px;
+      height: 22px;
+      background: #f1fa8c;
+      vertical-align: bottom;
+      margin-left: 4px;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- background stars -->
+    <div class="stars" id="stars"></div>
+
+    <!-- constellation SVG -->
+    <svg class="constellation" viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid slice">
+      <!-- Pisces constellation — two loose fish loops connected by a cord -->
+      <g stroke="#bd93f9" stroke-width="1" fill="none" opacity="0.25">
+        <!-- western fish loop -->
+        <polyline points="160,200 190,230 210,210 230,240 205,260 175,250 155,225 160,200"/>
+        <!-- cord connecting fish -->
+        <path d="M230,240 Q400,340 560,300 Q720,260 850,310"/>
+        <!-- eastern fish loop -->
+        <polyline points="850,310 880,280 910,295 930,275 905,255 875,265 855,285 850,310"/>
+        <!-- stars at knot points -->
+        <circle cx="230" cy="240" r="4" fill="#bd93f9" stroke="none"/>
+        <circle cx="560" cy="300" r="3" fill="#bd93f9" stroke="none" opacity="0.5"/>
+        <circle cx="850" cy="310" r="4" fill="#bd93f9" stroke="none"/>
+        <circle cx="160" cy="200" r="3" fill="#ff79c6" stroke="none"/>
+        <circle cx="930" cy="275" r="3" fill="#ff79c6" stroke="none"/>
+      </g>
+    </svg>
+
+    <div class="border-outer"></div>
+
+    <div class="corner tl">╔</div>
+    <div class="corner tr">╗</div>
+    <div class="corner bl">╚</div>
+    <div class="corner br">╝</div>
+
+    <div class="fish-row top">&gt;&lt;&gt; ~ &gt;&lt;&gt; ~ &gt;&lt;&gt; ~ &gt;&lt;&gt;</div>
+
+    <div class="content">
+      <div class="pi-wrap">
+        <!-- pixel-art style pi in pastel palette -->
+        <svg width="110" height="84" viewBox="0 0 110 84">
+          <!-- horizontal bar pixelated -->
+          <rect x="8"  y="6"  width="94" height="14" rx="0" fill="#f1fa8c"/>
+          <!-- left leg -->
+          <rect x="22" y="20" width="14" height="60" rx="0" fill="#ff79c6"/>
+          <!-- right leg -->
+          <rect x="70" y="20" width="14" height="44" rx="0" fill="#8be9fd"/>
+          <!-- plug connector — pastel orange -->
+          <rect x="66" y="52" width="22" height="16" rx="0" fill="#ffb86c"/>
+          <rect x="71" y="57" width="4"  height="7"  rx="0" fill="#1a0a2e"/>
+          <rect x="79" y="57" width="4"  height="7"  rx="0" fill="#1a0a2e"/>
+          <!-- pixel dots on bar -->
+          <rect x="10" y="10" width="5" height="5" fill="#bd93f9"/>
+          <rect x="95" y="10" width="5" height="5" fill="#bd93f9"/>
+          <!-- pixel shadow offset -->
+          <rect x="10"  y="8"  width="94" height="14" rx="0" fill="none" stroke="#ff79c644" stroke-width="2"/>
+        </svg>
+      </div>
+
+      <div class="title">PISCES</div><span class="cursor" style="display:block;width:12px;height:26px;background:#f1fa8c;margin:-6px auto 18px;animation:blink 1s step-end infinite;"></span>
+      <div class="subtitle">[ AI CODING AGENT ]</div>
+
+      <div class="tags">
+        <div class="tag">HEADLESS</div>
+        <div class="tag">SERVER</div>
+        <div class="tag">MCP</div>
+        <div class="tag">LSP</div>
+      </div>
+    </div>
+
+    <div class="fish-row bottom">&gt;&lt;&gt; ~ &gt;&lt;&gt; ~ &gt;&lt;&gt; ~ &gt;&lt;&gt;</div>
+
+    <div class="band">★ FORK OF OH-MY-PI ★ TARGETING HEADLESS &amp; SERVER USE ★</div>
+  </div>
+
+  <script>
+    // scatter random stars
+    const container = document.getElementById('stars');
+    for (let i = 0; i < 120; i++) {
+      const s = document.createElement('div');
+      s.className = 'star';
+      s.style.left = Math.random() * 100 + '%';
+      s.style.top  = Math.random() * 100 + '%';
+      const o = (0.3 + Math.random() * 0.7).toFixed(2);
+      s.style.setProperty('--o', o);
+      s.style.setProperty('--d', (1.5 + Math.random() * 3).toFixed(1) + 's');
+      const colors = ['white', '#ff79c6', '#8be9fd', '#f1fa8c', '#bd93f9'];
+      s.style.background = colors[Math.floor(Math.random() * colors.length)];
+      container.appendChild(s);
+    }
+  </script>
+</body>
+</html>
