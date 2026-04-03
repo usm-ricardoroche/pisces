@@ -1,9 +1,15 @@
 <p align="center">
-  <img src="https://github.com/can1357/oh-my-pi/blob/main/assets/hero.png?raw=true" alt="Pisces">
+  <img src="https://usm-ricardoroche.github.io/pisces/hero-dark.png" alt="pisces">
 </p>
 
 <p align="center">
   <strong>pisces — AI coding agent for headless and server use</strong>
+</p>
+
+<p align="center">
+  <a href="https://usm-ricardoroche.github.io/pisces/">Docs</a> ·
+  <a href="https://github.com/usm-ricardoroche/pisces">GitHub</a> ·
+  <a href="https://github.com/can1357/oh-my-pi">Upstream</a>
 </p>
 
 <p align="center">
