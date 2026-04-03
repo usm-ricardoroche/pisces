@@ -6,7 +6,7 @@ hero:
   text: AI coding agent for headless and server use
   tagline: Fork of oh-my-pi — MCP · LSP · Subagents · Web Search
   image:
-    src: /hero-dark.png
+    src: /pisces/hero-dark.png
     alt: pisces
   actions:
     - theme: brand
