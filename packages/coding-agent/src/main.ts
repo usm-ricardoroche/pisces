@@ -45,11 +45,7 @@ import { initTheme, stopThemeWatcher } from "./modes/theme/theme";
 import type { SubmittedUserInput } from "./modes/types";
 import { type CreateAgentSessionOptions, createAgentSession, discoverAuthStorage } from "./sdk";
 import type { AgentSession } from "./session/agent-session";
-import {
-	resolveResumableSession,
-	type SessionInfo,
-	SessionManager,
-} from "./session/session-manager";
+import { resolveResumableSession, type SessionInfo, SessionManager } from "./session/session-manager";
 import { resolvePromptInput } from "./system-prompt";
 import { getBundledAgent } from "./task/agents";
 import { getChangelogPath, getNewEntries, parseChangelog } from "./utils/changelog";
@@ -751,8 +747,8 @@ export async function runRootCommand(parsed: Args, rawArgs: string[]): Promise<v
 	// Shoal-first: inject active session context into system prompt via inline extension.
 	// Reads the Shoal SQLite DB directly — no daemon needed, zero noise when idle.
 	if (settings.get("shoal.enabled")) {
-		const { shoalExtension } = await import("./shoal");
-		sessionOptions.extensions = [...(sessionOptions.extensions ?? []), shoalExtension];
+		const { shoalExtension, registerTeamCommand } = await import("./shoal");
+		sessionOptions.extensions = [...(sessionOptions.extensions ?? []), shoalExtension, registerTeamCommand];
 	}
 
 	// Lobster extension tools (PISCES_LOBSTER_MODE=1 or pisces.lobsterMode: true)
@@ -771,7 +767,11 @@ export async function runRootCommand(parsed: Args, rawArgs: string[]): Promise<v
 		for (const [idx, sock] of piscesMcpSockets.entries()) {
 			// Use socket basename (no extension) as the server name so Bedrock tool
 			// names stay well under the 64-char limit. Append index for uniqueness.
-			const base = sock.replace(/\.sock$/, "").replace(/.*[\/\\]/, "").replace(/[^a-z0-9_]/gi, "_").slice(0, 40);
+			const base = sock
+				.replace(/\.sock$/, "")
+				.replace(/.*[/\\]/, "")
+				.replace(/[^a-z0-9_]/gi, "_")
+				.slice(0, 40);
 			const name = idx === 0 ? `shoal_${base}` : `shoal_${base}_${idx}`;
 			extraMcpServers[name] = { type: "stdio", command: "nc", args: ["-U", sock] };
 		}
