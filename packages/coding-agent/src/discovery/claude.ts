@@ -67,9 +67,12 @@ async function loadMCPServers(ctx: LoadContext): Promise<LoadResult<MCPServer>> 
 	const projectMcpJson = path.join(projectBase, ".mcp.json");
 	const projectMcpJsonAlt = path.join(projectBase, "mcp.json");
 
+	const userMcpJsonDot = path.join(userBase, ".mcp.json");
+
 	const userPaths = [
 		{ path: userClaudeJson, level: "user" as const },
 		{ path: userMcpJson, level: "user" as const },
+		{ path: userMcpJsonDot, level: "user" as const },
 	];
 	const projectPaths = [
 		{ path: projectMcpJson, level: "project" as const },
@@ -89,6 +92,7 @@ async function loadMCPServers(ctx: LoadContext): Promise<LoadResult<MCPServer>> 
 			const serverConfig = config as Record<string, unknown>;
 			return {
 				name,
+				enabled: typeof serverConfig.enabled === "boolean" ? serverConfig.enabled : undefined,
 				timeout: typeof serverConfig.timeout === "number" ? serverConfig.timeout : undefined,
 				command: serverConfig.command as string | undefined,
 				args: serverConfig.args as string[] | undefined,
