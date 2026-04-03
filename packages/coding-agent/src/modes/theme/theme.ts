@@ -257,7 +257,7 @@ const UNICODE_SYMBOLS: SymbolMap = {
 	"icon.context": "◫",
 	"icon.cost": "💲",
 	"icon.time": "⏱",
-	"icon.pi": " ",
+	"icon.pi": "󰪄  ",
 	"icon.agents": "👥",
 	"icon.cache": "💾",
 	"icon.input": "⤵",
@@ -477,8 +477,8 @@ const NERD_SYMBOLS: SymbolMap = {
 	// pick:  | alt: ◷ ◴
 	"icon.time": "\uf017",
 	// pick:  | alt: ><>
-	"icon.pi": "\uee41",
-	// pick:  | alt: 
+	"icon.pi": "󰪄  ",
+	// pick:  󰪄 | alt: ><>
 	"icon.agents": "\uf0c0",
 	// pick:  | alt:  
 	"icon.cache": "\uf1c0",
