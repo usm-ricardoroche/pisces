@@ -11,6 +11,7 @@ import exploreMd from "../prompts/agents/explore.md" with { type: "text" };
 // Embed agent markdown files at build time
 import agentFrontmatterTemplate from "../prompts/agents/frontmatter.md" with { type: "text" };
 import librarianMd from "../prompts/agents/librarian.md" with { type: "text" };
+import lobsterRuntimeMd from "../prompts/agents/lobster-runtime.md" with { type: "text" };
 import oracleMd from "../prompts/agents/oracle.md" with { type: "text" };
 import planMd from "../prompts/agents/plan.md" with { type: "text" };
 import reviewerMd from "../prompts/agents/reviewer.md" with { type: "text" };
@@ -47,6 +48,7 @@ const EMBEDDED_AGENT_DEFS: EmbeddedAgentDef[] = [
 	{ fileName: "reviewer.md", template: reviewerMd },
 	{ fileName: "oracle.md", template: oracleMd },
 	{ fileName: "librarian.md", template: librarianMd },
+	{ fileName: "lobster-runtime.md", template: lobsterRuntimeMd }, // Lobster sandbox persona
 	{
 		fileName: "task.md",
 		frontmatter: {

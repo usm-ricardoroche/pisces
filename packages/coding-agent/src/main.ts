@@ -45,7 +45,12 @@ import { initTheme, stopThemeWatcher } from "./modes/theme/theme";
 import type { SubmittedUserInput } from "./modes/types";
 import { type CreateAgentSessionOptions, createAgentSession, discoverAuthStorage } from "./sdk";
 import type { AgentSession } from "./session/agent-session";
-import { resolveResumableSession, type SessionInfo, SessionManager } from "./session/session-manager";
+import {
+	resolveResumableSession,
+	type SessionInfo,
+	type SessionListEntry,
+	SessionManager,
+} from "./session/session-manager";
 import { resolvePromptInput } from "./system-prompt";
 import { getBundledAgent } from "./task/agents";
 import { getChangelogPath, getNewEntries, parseChangelog } from "./utils/changelog";
@@ -514,7 +519,7 @@ async function buildSessionOptions(
 		options.additionalExtensionPaths = [];
 	}
 
-	// Apply bundled agent as system prompt
+	// Apply bundled agent as system prompt, model, and thinking level
 	if (parsed.agent) {
 		const agentDef = getBundledAgent(parsed.agent);
 		if (!agentDef) {
@@ -532,6 +537,14 @@ async function buildSessionOptions(
 		}
 		if (agentDef.tools && !parsed.tools) {
 			options.toolNames = agentDef.tools;
+		}
+		// Apply model preference when no explicit --model was given
+		if (!parsed.model && !options.model && agentDef.model && agentDef.model.length > 0) {
+			options.modelPattern = agentDef.model[0];
+		}
+		// Apply thinking level when no explicit --thinking was given
+		if (!parsed.thinking && agentDef.thinkingLevel !== undefined) {
+			options.thinkingLevel = agentDef.thinkingLevel;
 		}
 	}
 
@@ -567,6 +580,13 @@ export async function runRootCommand(parsed: Args, rawArgs: string[]): Promise<v
 		await modelRegistry.refresh("online");
 		const searchPattern = typeof parsedArgs.listModels === "string" ? parsedArgs.listModels : undefined;
 		await listModels(modelRegistry, searchPattern);
+		process.exit(0);
+	}
+
+	if (parsedArgs.listSessions) {
+		const cwd = parsedArgs.cwd ?? getProjectDir();
+		const sessions: SessionListEntry[] = await SessionManager.listAsJson(cwd, parsedArgs.sessionDir);
+		process.stdout.write(`${JSON.stringify(sessions, null, 2)}\n`);
 		process.exit(0);
 	}
 
