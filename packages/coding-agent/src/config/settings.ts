@@ -448,11 +448,11 @@ export class Settings {
 	}
 
 	#applyEnvOverrides(): void {
-		// PISCES_LSP=1 enables LSP; PISCES_LSP=0 disables it
+		const lspEnabledPath = parsePath("lsp.enabled");
 		if (Bun.env.PISCES_LSP === "1") {
-			setByPath(this.#overrides, parsePath("lsp.enabled"), true);
+			setByPath(this.#overrides, lspEnabledPath, true);
 		} else if (Bun.env.PISCES_LSP === "0") {
-			setByPath(this.#overrides, parsePath("lsp.enabled"), false);
+			setByPath(this.#overrides, lspEnabledPath, false);
 		}
 	}
 

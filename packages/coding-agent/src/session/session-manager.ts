@@ -2732,6 +2732,7 @@ export class SessionManager {
 			return [];
 		}
 	}
+
 	/**
 	 * List sessions for a cwd as a JSON-serializable array.
 	 * Includes parent chain links for session tree reconstruction.

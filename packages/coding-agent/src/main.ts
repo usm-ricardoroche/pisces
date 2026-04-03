@@ -48,7 +48,6 @@ import type { AgentSession } from "./session/agent-session";
 import {
 	resolveResumableSession,
 	type SessionInfo,
-	type SessionListEntry,
 	SessionManager,
 } from "./session/session-manager";
 import { resolvePromptInput } from "./system-prompt";
@@ -585,7 +584,7 @@ export async function runRootCommand(parsed: Args, rawArgs: string[]): Promise<v
 
 	if (parsedArgs.listSessions) {
 		const cwd = parsedArgs.cwd ?? getProjectDir();
-		const sessions: SessionListEntry[] = await SessionManager.listAsJson(cwd, parsedArgs.sessionDir);
+		const sessions = await SessionManager.listAsJson(cwd, parsedArgs.sessionDir);
 		process.stdout.write(`${JSON.stringify(sessions, null, 2)}\n`);
 		process.exit(0);
 	}

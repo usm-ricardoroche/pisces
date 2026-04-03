@@ -784,37 +784,36 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 					? { items: options.rules, warnings: undefined }
 					: await loadCapability<Rule>(ruleCapability.id, { cwd });
 			// Inject lobster TTSR rules when lobsterMode is active
-			const rulesResult = settings.get("pisces.lobsterMode")
-				? (() => {
-						const lobsterSource: SourceMeta = {
-							provider: "pisces:lobster",
-							providerName: "Pisces Lobster",
-							path: "embedded:lobster",
-							level: "user",
-						};
-						const lobsterRules = [
-							buildRuleFromMarkdown(
-								"lobster-tool-behavior",
-								lobsterToolBehaviorRule,
-								"embedded:lobster/tool-behavior.md",
-								lobsterSource,
-							),
-							buildRuleFromMarkdown(
-								"lobster-filesystem-behavior",
-								lobsterFilesystemBehaviorRule,
-								"embedded:lobster/filesystem-behavior.md",
-								lobsterSource,
-							),
-							buildRuleFromMarkdown(
-								"lobster-git-behavior",
-								lobsterGitBehaviorRule,
-								"embedded:lobster/git-behavior.md",
-								lobsterSource,
-							),
-						];
-						return { ...discoveredRulesResult, items: [...discoveredRulesResult.items, ...lobsterRules] };
-					})()
-				: discoveredRulesResult;
+			let rulesResult = discoveredRulesResult;
+			if (settings.get("pisces.lobsterMode")) {
+				const lobsterSource: SourceMeta = {
+					provider: "pisces:lobster",
+					providerName: "Pisces Lobster",
+					path: "embedded:lobster",
+					level: "user",
+				};
+				const lobsterRules = [
+					buildRuleFromMarkdown(
+						"lobster-tool-behavior",
+						lobsterToolBehaviorRule,
+						"embedded:lobster/tool-behavior.md",
+						lobsterSource,
+					),
+					buildRuleFromMarkdown(
+						"lobster-filesystem-behavior",
+						lobsterFilesystemBehaviorRule,
+						"embedded:lobster/filesystem-behavior.md",
+						lobsterSource,
+					),
+					buildRuleFromMarkdown(
+						"lobster-git-behavior",
+						lobsterGitBehaviorRule,
+						"embedded:lobster/git-behavior.md",
+						lobsterSource,
+					),
+				];
+				rulesResult = { ...discoveredRulesResult, items: [...discoveredRulesResult.items, ...lobsterRules] };
+			}
 			const registeredTtsrRuleNames = new Set<string>();
 			for (const rule of rulesResult.items) {
 				if (rule.condition && rule.condition.length > 0) {

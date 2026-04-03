@@ -48,7 +48,7 @@ const EMBEDDED_AGENT_DEFS: EmbeddedAgentDef[] = [
 	{ fileName: "reviewer.md", template: reviewerMd },
 	{ fileName: "oracle.md", template: oracleMd },
 	{ fileName: "librarian.md", template: librarianMd },
-	{ fileName: "lobster-runtime.md", template: lobsterRuntimeMd }, // Lobster sandbox persona
+	{ fileName: "lobster-runtime.md", template: lobsterRuntimeMd },
 	{
 		fileName: "task.md",
 		frontmatter: {
