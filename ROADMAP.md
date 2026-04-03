@@ -18,11 +18,11 @@ All items tracked in PLAN.md.
 - Update lobster-loop `grpc.rs` output parsing for pisces event schema
 - Persist session ID→thread mapping in lobster-loop across restarts (see §Risk: session ID storage)
 
-**P1 quality-of-life:**
-- `--no-provider-discovery` flag
-- `--agent <name>` flag
-- Structured error JSON on exit code 1
-- Validate `--session-dir` is fully wired end-to-end (flag is parsed but wiring to session storage needs verification)
+**P1 quality-of-life — DONE:**
+- `--no-provider-discovery` flag (already implemented)
+- `--agent <name>` flag (already implemented)
+- Structured error JSON on exit code 1: `fatalError()` helper + top-level catch in `launch.ts`; error codes: `INVALID_ARG`, `NO_MODEL`, `STARTUP_ERROR`, `TURN_FAILED`
+- `--session-dir` validated end-to-end (fully wired via `cfff626ba`; PLAN.md test was stale)
 
 ## Embedder-grade platform hardening (next major arc)
 
