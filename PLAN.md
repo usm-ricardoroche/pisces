@@ -9,6 +9,53 @@ headless behavior and defines the changes needed for a clean lobster-party integ
 
 ---
 
+## Status (as of 2026-04-06)
+
+### Complete
+
+**P0 + P1 — lobster-party integration (all done in pisces):**
+- Session writer drain in `-p` mode — persist queue drains before exit
+- `sessionId` + `sessionFile` emitted on `agent_end` event
+- `--mode=json` equals-form fix; unrecognized modes error loudly
+- `messageUser` + `memorySearch` tools via lobster extension (`PISCES_LOBSTER_MODE=1`)
+- `--session-dir` wired end-to-end to SessionManager
+- `--no-provider-discovery` flag
+- Structured error JSON on exit 1: `fatalError()` + error codes (`INVALID_ARG`, `NO_MODEL`, `STARTUP_ERROR`, `TURN_FAILED`)
+- `--agent <name>` flag
+- Binary renamed to `pisces`; `omp` symlink kept
+
+**Shoal integration:**
+- Shoal-P0: `pisces.toml` tool profile (ships in shoal repo)
+- Shoal-P1: `PISCES_MCP_SOCKETS` Unix socket MCP injection — implemented and wired in pisces
+
+**Epics:**
+- Epic 1: Verified isolated task execution — done
+- Epic 2: Standard telemetry bridge (OTLP/JSON, `OtelTelemetryAdapter`) — done
+- Epic 3: Budget policy enforcement (7 dimensions, `BudgetController`, hard enforcement) — done
+
+**Upstream ports (shipped):**
+- Idle compaction, plan-mode thinking level propagation, session observer overlay (Ctrl+S)
+- Subagent lifecycle events (`started`/`completed`/`failed`), auto-resume, secrets hash token redaction
+- 40+ new AI models (Gemini 2.5 Pro/Flash, Claude Sonnet 4.5, GPT-4.1, o3-mini, etc.)
+- `.pisces/` config dir; falls back to `.claude/`, `.codex/`, `.gemini/`
+
+### Partially done
+
+- Epic 4 (Hybrid repo retrieval): `hybrid_search` tool ships; semantic reranking pending
+- Epic 5 (Session replay inspector): headless `pisces session inspect <file>` CLI ships; UI visualizers pending
+
+### Pending / future
+
+- `grpc.rs` output parsing update in lobster-loop — lobster-party repo, external
+- Session ID→thread persistence across lobster-loop restarts — lobster-party repo, external
+- gRPC mode (`--mode grpc`, `crates/pi-grpc`) — roadmap item
+- `pi-session` Rust session storage crate — roadmap item
+- Persistent LSP across turns (depends on gRPC mode)
+- Shoal-P2: `pisces-dev.toml` template, `pisces-robo.toml` robo profile, config interpolation
+- Shoal-P3: gRPC mode as persistent session backend for shoal-managed pisces sessions
+
+---
+
 ## Context: lobster-party integration model
 
 `lobster-loop` (the lobster-party gRPC worker) currently drives `opencode` as
@@ -80,9 +127,9 @@ and fail fast with a clear error if no model config is found.
 
 ## Changes to implement
 
-### P0 — Required for lobster-party integration
+### P0 — Required for lobster-party integration (all done in pisces)
 
-#### 1. Fix session writer drain in `-p` print mode
+#### 1. Fix session writer drain in `-p` print mode (done)
 
 **File:** `packages/coding-agent/src/modes/print-mode.ts`
 
@@ -112,7 +159,7 @@ with non-zero size within 1s of process exit.
 **Why this is P0:** Without durable session files, `--resume` is unreliable and
 lobster-loop loses conversation context across turns.
 
-#### 2. Emit session file path in `agent_end` event
+#### 2. Emit session file path in `agent_end` event (done)
 
 **File:** `packages/coding-agent/src/session/agent-session.ts`
 
@@ -144,7 +191,7 @@ This lets lobster-loop extract the session ID from `agent_end` rather than
 parsing line 1. It's the canonical handoff point — fires after all turns complete
 and the session is about to close.
 
-#### 3. Fix `--mode=json` flag parsing
+#### 3. Fix `--mode=json` flag parsing (done)
 
 **File:** `packages/coding-agent/src/cli/args.ts`
 
@@ -173,7 +220,7 @@ if (arg.startsWith("--mode=")) {
 Apply the same equals-form normalization to any other flags that lobster-loop
 may pass using equals syntax.
 
-#### 4. Port `messageUser` and `memorySearch` tools to pisces extension API
+#### 4. Port `messageUser` and `memorySearch` tools to pisces extension API (done)
 
 **File:** `packages/coding-agent/` — new file, e.g. `src/lobster/tools.ts`
 
@@ -190,7 +237,7 @@ Only the tool registration API differs.
 These tools should live in pisces as a built-in lobster extension, loaded when
 `PISCES_LOBSTER_MODE=1` is set (or via a dedicated `--lobster` flag).
 
-#### 5. Update `grpc.rs` output parsing in lobster-loop
+#### 5. Update `grpc.rs` output parsing in lobster-loop (lobster-party repo — pending)
 
 **File:** `lobster-party/cmd/lobster-loop/src/grpc.rs`
 
@@ -222,7 +269,7 @@ Response text: walk `turn_end.message.content` for `type === "text"` items.
 Thinking text: walk for `type === "thinking"` items.
 Session ID: `JSON.parse(firstLine).id`.
 
-#### 6. `--session-dir` flag — make it actually work
+#### 6. `--session-dir` flag — make it actually work (done)
 
 **File:** `packages/coding-agent/src/cli/args.ts` + session storage init
 
@@ -234,16 +281,16 @@ needing full `PI_CODING_AGENT_DIR` isolation. Simpler sandbox config.
 
 ---
 
-### P1 — Quality of life / lobster-party ergonomics
+### P1 — Quality of life / lobster-party ergonomics (all done)
 
-#### 7. `--no-provider-discovery` flag
+#### 7. `--no-provider-discovery` flag (done)
 
 When set, skip auto-discovery of ambient providers (Bedrock, Ollama, LM Studio,
 GitHub Copilot). Only use explicitly configured providers from `config.yml` or
 `--model` flags. Prevents the Bedrock-as-default footgun when running in
 environments with AWS credentials present.
 
-#### 8. Structured exit on error
+#### 8. Structured exit on error (done)
 
 When `-p` exits with code 1, write a JSON error line to stdout so the harness
 can distinguish error types:
@@ -254,14 +301,14 @@ can distinguish error types:
 
 Currently only a plain text message goes to stderr.
 
-#### 9. `--agent <name>` flag
+#### 9. `--agent <name>` flag (done)
 
 oh-my-pi has the concept of bundled agents (explore, plan, reviewer, etc.).
 Add a `--agent` flag to `pisces -p` that selects which agent runs, matching
 opencode's `--agent=<name>` interface. This lets lobster-loop select the
 `lobster-runtime` agent persona by name, not just by system prompt content.
 
-#### 10. Rename binary to `pisces`
+#### 10. Rename binary to `pisces` (done)
 
 Rename the primary CLI binary from `omp` to `pisces`. Keep `omp` as a symlink
 alias for backward compatibility.
@@ -434,6 +481,9 @@ The two systems complement each other:
 - **shoal** = terminal orchestration layer (tmux, worktrees, local developer sessions)
 
 Pisces must be a first-class citizen in both.
+
+**Shoal integration status:** Shoal-P0 (tool profile) and Shoal-P1 (`PISCES_MCP_SOCKETS` injection) are complete.
+Shoal-P2 (templates, robo profile, config interpolation) and Shoal-P3 (gRPC session backend) remain future work.
 
 ### What shoal needs: a pisces tool profile
 
@@ -673,12 +723,12 @@ A summary of concrete work required in the shoal repo:
 
 | File | Change |
 |---|---|
-| `packages/coding-agent/src/modes/print-mode.ts` | P0.1: ensure persist queue drains before exit |
-| `packages/coding-agent/src/session/agent-session.ts` | P0.2: add `sessionId`+`sessionFile` to `agent_end` event |
-| `packages/coding-agent/src/cli/args.ts` | P0.3: `--mode=json` equals-form fix + error on unknown mode; P1.6: verify `--session-dir` wiring; P1.7: `--no-provider-discovery`; P1.9: `--agent` |
-| `packages/coding-agent/src/lobster/tools.ts` | P0.4: messageUser + memorySearch extension |
-| `packages/coding-agent/src/lobster/index.ts` | P0.4: extension loader for lobster mode |
-| `packages/coding-agent/src/main.ts` | P1.7: provider discovery flag wiring; Shoal-P1: PISCES_MCP_SOCKETS |
+| `packages/coding-agent/src/modes/print-mode.ts` | P0.1: ensure persist queue drains before exit (done) |
+| `packages/coding-agent/src/session/agent-session.ts` | P0.2: add `sessionId`+`sessionFile` to `agent_end` event (done) |
+| `packages/coding-agent/src/cli/args.ts` | P0.3: `--mode=json` equals-form fix + error on unknown mode; P1.6: verify `--session-dir` wiring; P1.7: `--no-provider-discovery`; P1.9: `--agent` (all done) |
+| `packages/coding-agent/src/lobster/tools.ts` | P0.4: messageUser + memorySearch extension (done) |
+| `packages/coding-agent/src/lobster/index.ts` | P0.4: extension loader for lobster mode (done) |
+| `packages/coding-agent/src/main.ts` | P1.7: provider discovery flag wiring; Shoal-P1: PISCES_MCP_SOCKETS (all done) |
 
 ### In lobster-party
 
@@ -737,6 +787,6 @@ All open questions resolved. Recorded here for traceability.
 | 3 | Distribution | Binary artifact only (sandbox rootfs + Artifactory if promoted to company stack); no npm publish |
 | 4 | ACP vs lobster extension for `messageUser` | Custom lobster extension for P0; revisit ACP during gRPC mode design phase |
 | 5 | `pisces.json` schema / migration | Seamless: read `pisces.json` first, fall back to `opencode.json`; accept both schemas; no `$schema` URL until hosted |
-| 6 | `PISCES_MCP_SOCKETS` format | Colon-delimited bare Unix socket paths; warn loudly if set but feature not active |
+| 6 | `PISCES_MCP_SOCKETS` format | Implemented as colon-delimited bare Unix socket paths; feature is active (not just documented) |
 | 7 | Shoal tool profile location | Ships in shoal repo alongside `pi.toml` / `opencode.toml` |
 | 8 | `pi-session` crate packaging | Stays inside `pi-natives` as a new module (`session_storage.rs`); not a separate addon |

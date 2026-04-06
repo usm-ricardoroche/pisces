@@ -75,4 +75,24 @@ features:
     details: Register LLM-callable tools, slash commands, keyboard shortcuts, event interceptors, and custom renderers from a single TypeScript factory. Install plugins from any Git-hosted catalog compatible with the Claude plugin registry format.
     link: /extensions
     linkText: Extensions guide
+  - title: Shoal multi-agent orchestration
+    icon:
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v4M12 11l-5 6M12 11l5 6"/><path d="M5 17V13M19 17V13"/></svg>'
+    details: "/team run dispatches agents into isolated Shoal sessions with wave sequencing, action gating, and correlation tracking. Each agent gets its own tmux pane and optional git worktree — fully independent of the parent session."
+    link: /features#shoal-team-orchestration
+    linkText: Shoal orchestration
+
+  - title: Lobster-party integration
+    icon:
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 10h16M4 14h10M4 18h8"/><circle cx="19" cy="17" r="3"/><path d="M19 15v2l1 1"/></svg>'
+    details: "PISCES_LOBSTER_MODE=1 loads the messageUser and memorySearch extension tools for lobster-party pipeline deployments. PISCES_MCP_SOCKETS injects shared Unix socket MCP servers from a Shoal-managed pool."
+    link: /features#lobster-party-integration-mode
+    linkText: Lobster integration
+
+  - title: Budget + telemetry
+    icon:
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 4-8"/><circle cx="7" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="11" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="15" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg>'
+    details: "RunBudgetPolicy enforces 7 budget dimensions per run (tokens, cost, wall time, tool calls, subagents). OtelTelemetryAdapter emits OTLP spans covering the full session/turn/tool hierarchy. Both are zero-overhead when unconfigured."
+    link: /features#budget-policy-enforcement
+    linkText: Budget & telemetry
 ---

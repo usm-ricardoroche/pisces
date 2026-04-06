@@ -10,19 +10,22 @@ This file tracks the longer-arc architecture work.
 Get pisces working as a drop-in replacement for opencode in lobster-loop.
 All items tracked in PLAN.md.
 
-**P0 blockers:**
-- Fix session writer drain in `-p` mode (ensure `sessionManager.close()` fully drains before process exit)
-- Emit `sessionFile` in `agent_end` event (event exists but lacks the field — see §Event taxonomy below)
-- Fix `--mode=json` equals-syntax flag parsing bug; also add loud error on unrecognized mode values
-- Port `messageUser` + `memorySearch` tools to pisces extension API
-- Update lobster-loop `grpc.rs` output parsing for pisces event schema
-- Persist session ID→thread mapping in lobster-loop across restarts (see §Risk: session ID storage)
+**P0 blockers (pisces-side — all done; lobster-party items pending in that repo):**
+- Fix session writer drain in `-p` mode (done in pisces)
+- Emit `sessionFile` in `agent_end` event (done in pisces)
+- Fix `--mode=json` equals-syntax flag parsing bug; also add loud error on unrecognized mode values (done in pisces)
+- Port `messageUser` + `memorySearch` tools to pisces extension API (done in pisces)
+- Update lobster-loop `grpc.rs` output parsing for pisces event schema (lobster-party repo — pending)
+- Persist session ID→thread mapping in lobster-loop across restarts (lobster-party repo — pending)
 
 **P1 quality-of-life — DONE:**
 - `--no-provider-discovery` flag (already implemented)
 - `--agent <name>` flag (already implemented)
 - Structured error JSON on exit code 1: `fatalError()` helper + top-level catch in `launch.ts`; error codes: `INVALID_ARG`, `NO_MODEL`, `STARTUP_ERROR`, `TURN_FAILED`
 - `--session-dir` validated end-to-end (fully wired via `cfff626ba`; PLAN.md test was stale)
+
+**Shoal integration:** Shoal-P0 (tool profile) and Shoal-P1 (`PISCES_MCP_SOCKETS` injection) are complete.
+Shoal-P2 (templates, robo profile, config interpolation) and Shoal-P3 (gRPC session backend) are nice-to-have, not started.
 
 ## Embedder-grade platform hardening (next major arc)
 
@@ -58,16 +61,20 @@ All items tracked in PLAN.md.
 - Eight new settings under `task.budget.*`; controller is only instantiated when at least one limit is configured.
 - `docs/rpc.md` updated with `BudgetSnapshot` field table, event shapes, and settings reference.
 
-### Epic 4. Hybrid repo retrieval (P1)
+### Epic 4. Hybrid repo retrieval (P1) — PARTIALLY DONE
 
 - Build a retrieval pipeline that combines `grep`, `ast_grep`, `lsp`, and optional semantic reranking.
 - Keep deterministic candidate generation as the default; semantic ranking reranks candidates instead of replacing structural search.
 - Return provenance-scored hits rather than opaque vector-only results.
+- `hybrid_search` tool ships: unified `grep` + `ast_grep` + `lsp` retrieval with provenance scoring.
+- Semantic reranking pending (optional layer on top of deterministic candidate generation).
 
-### Epic 5. Session replay inspector (P1)
+### Epic 5. Session replay inspector (P1) — PARTIALLY DONE
 
 - Expose session tree movement, branch summaries, tool timelines, TTSR injections, retries, and compactions as replayable structured data.
 - Ship the headless inspection layer first; UI visualizers remain a thin consumer on top of the same replay model.
+- Headless `pisces session inspect <file>` CLI ships; supports structured session replay and analysis.
+- UI visualizers (branch summaries, tool timelines, TTSR injection views) remain future work on top of the same replay model.
 
 ### Epic 6. Vision-assisted UI triage (P2)
 
@@ -401,11 +408,11 @@ independent of lobster-party status.
 
 ### Priority tiers for shoal work
 
-**Shoal-P0 (enables pisces as a shoal tool today):**
+**Shoal-P0 (enables pisces as a shoal tool today) — DONE:**
 - Add `examples/config/tools/pisces.toml` to shoal repo — lets developers use
   pisces in shoal sessions with correct status detection patterns
 
-**Shoal-P1 (MCP pool injection — needed for shared MCP servers):**
+**Shoal-P1 (MCP pool injection — needed for shared MCP servers) — DONE:**
 - Implement `PISCES_MCP_SOCKETS` env var in pisces `main.ts`
   (read colon-delimited Unix socket paths, register each as MCP client)
 - Update `src/shoal/services/mcp_pool.py` to inject `PISCES_MCP_SOCKETS` when
@@ -502,20 +509,11 @@ or omit it:
 
 ---
 
-### Risk 4: `PISCES_MCP_SOCKETS` silently ignored if not implemented
+### Risk 4: `PISCES_MCP_SOCKETS` silently ignored if not implemented — RESOLVED
 
-**Problem:** Shoal injects `PISCES_MCP_SOCKETS` via env var. If pisces doesn't
-read it yet, the injection silently does nothing — no error, no indication.
-
-**Mitigation:** On startup, if `PISCES_MCP_SOCKETS` is set and non-empty but the
-feature flag is not active, log a visible warning to stderr:
-
-```
-[pisces] WARNING: PISCES_MCP_SOCKETS is set but MCP socket injection is not enabled.
-Set PISCES_MCP_ENABLED=1 or add mcp.sockets to pisces.json.
-```
-
-This makes the integration gap visible instead of silent.
+**Status: Resolved.** `PISCES_MCP_SOCKETS` is implemented. Pisces reads the env var on startup,
+splits on `:`, and registers each path as a Unix socket MCP client. No warning-and-bail path needed.
+The integration gap this risk described no longer exists.
 
 ---
 

@@ -50,18 +50,23 @@ Redirects session storage for the process lifetime. Lets lobster-loop point each
 
 ### Shoal team orchestration
 
-Shoal provides multi-agent team coordination for pisces. When enabled (`shoal.enabled: true`), it provides:
+Shoal provides wave-based multi-agent team coordination. Requires `shoal-mcp-server` on PATH. Enabled via `shoal.enabled: true` (default); fails clearly with a diagnostic error if Shoal is absent.
 
-**`/team` command** — interact with team runs from within a pisces session. Start a team run, check status, approve actions, or abort.
+**`/team run <file.yaml>`** — parses a workflow YAML and dispatches agents in sequential waves. Each agent runs in its own Shoal session with a dedicated tmux pane and, when requested, an isolated git worktree. Waves execute serially; all agents in a wave must complete before the next wave starts.
 
-**Shared MCP server pool** — when `PISCES_MCP_SOCKETS` is set, pisces connects to Unix socket MCP servers instead of spawning separate processes. This enables:
-- Reduced resource usage across multiple sessions
-- Shared state between agent sessions
-- Centralized MCP server management via shoal
+**`ShoalOrchestrator`** — drives wave execution. Polls per-agent completion via `ShoalMcpBridge`, aggregates results, and surfaces structured output per agent. All Shoal interactions are centralised in `src/shoal/` — no direct SQLite reads elsewhere.
+
+**Action gating** — agents call `shoal_request_action` before any destructive operation (write, delete, deploy). The pending action is surfaced in the TUI and blocks the next wave from starting. The operator resolves it via `/team approve <id>` or `/team deny <id>` from any pisces session. Denied actions propagate as failures to the requesting agent.
+
+**Correlation IDs** — every `/team run` is assigned a `wf_<16-hex>` workflow ID at dispatch. The ID threads through the TUI widget header, per-agent progress lines, and the final result summary, making it trivial to correlate log output across concurrent runs.
+
+**Awareness context injection** — at session start, `ShoalMcpBridge` attempts to retrieve live Shoal session data and injects a compact summary into the system prompt. Best-effort: skipped silently on Shoal unavailability.
+
+**Shared MCP socket pool** — when `PISCES_MCP_SOCKETS` is set, pisces connects to existing Unix socket MCP servers instead of spawning new processes. Enables shared MCP state across a fleet of agents managed by Shoal.
 
 Environment variables:
 - `PISCES_MCP_SOCKETS` — colon-separated Unix socket paths (e.g., `/tmp/mcp.sock:/tmp/mcp2.sock`)
-- `shoal.enabled` — enable/disable shoal extension (default: `true`)
+- `shoal.enabled` — enable/disable Shoal extension (default: `true`)
 
 Or configure via `pisces.mcpSockets` in config:
 
@@ -71,16 +76,104 @@ Or configure via `pisces.mcpSockets` in config:
 }
 ```
 
+→ [PISCES_SHOAL_EXECUTION_MODEL.md](/PISCES_SHOAL_EXECUTION_MODEL) — task vs `/team` decision rule, integration boundary, action gating protocol
+
+### Budget policy enforcement
+
+`RunBudgetPolicy` applies per-run resource limits across 7 dimensions:
+
+| Setting (`task.budget.*`) | Description |
+|:---|:---|
+| `maxWallTimeMs` | Wall-clock time limit for the run |
+| `maxInputTokens` | Total input tokens consumed |
+| `maxOutputTokens` | Total output tokens generated |
+| `maxTotalTokens` | Combined input + output tokens |
+| `maxCostUsd` | Estimated cost ceiling in USD |
+| `maxToolCalls` | Total tool invocations |
+| `maxSubagents` | Nested subagent dispatches |
+
+`BudgetController` tracks live consumption and emits a `budget_warning` event at 80% of any limit. Hard enforcement triggers in the task tool — the run is terminated with a structured error before the limit is exceeded. Zero overhead when no budget is configured.
+
+### Standard telemetry bridge
+
+`OtelTelemetryAdapter` emits OpenTelemetry-compatible spans over HTTP without a full OTel SDK dependency. Payloads are OTLP/JSON POSTed to `telemetry.endpoint`.
+
+Span hierarchy:
+```
+pisces.session
+  └─ pisces.turn
+       └─ pisces.tool_call
+  └─ pisces.subagent_run
+       └─ pisces.subagent_verification
+```
+
+LLM spans carry a `gen_ai_tool_definitions` attribute listing the active tool manifest — visible in Jaeger and Datadog without additional instrumentation.
+
+Settings:
+- `telemetry.enabled` — activate the bridge (default: `false`)
+- `telemetry.endpoint` — OTLP/HTTP collector URL
+- `telemetry.serviceName` — service name tag on all spans
+
+No spans are emitted and no network calls are made when `telemetry.enabled` is false.
+
+### Verified isolated task execution
+
+Isolated task runs (those with `isolated: true`) support configurable verification policies applied after the agent completes. The `VerificationResult` is structured — callers can distinguish "agent finished but verification failed" from "agent crashed".
+
+Verification pipeline:
+1. **LSP check** — runs diagnostics on files touched during the task.
+2. **Command checks** — arbitrary shell commands declared in the policy (e.g., `bun check:ts`, `pytest -x`).
+
+On failure, one bounded repair retry is attempted: the original agent is resumed with the verification errors injected as context. Per-attempt output is written to a log artifact. The retry cap is fixed — no unbounded repair loops.
+
+Six new session event types emitted during isolated task lifecycle:
+
+| Event | Fires when |
+|:---|:---|
+| `subagent_start` | Subagent session begins |
+| `subagent_end` | Subagent session completes (success or failure) |
+| `subagent_verification_start` | Verification policy begins |
+| `subagent_verification_end` | Verification policy completes |
+| `subagent_repair_start` | Repair retry begins |
+| `subagent_repair_end` | Repair retry completes |
+
+### Session inspect CLI
+
+`pisces session inspect <file.jsonl>` opens a session JSONL file for replay and analysis. Useful for post-mortem review of agent runs, extracting structured outputs, and verifying event sequences without re-running the agent.
+
+### Hybrid search tool
+
+`hybrid_search` combines grep, ast-grep, and LSP in a single retrieval pass. Returns results with provenance scoring — each hit is annotated with which search backend found it and at what confidence. Avoids redundant parallel searches for the common case where all three backends agree.
+
 ### Presets
 
 pisces supports configuration presets for different deployment scenarios:
 
-|`pisces.preset` | Description |
+| `pisces.preset` | Activates |
 |:---|:---|
-| `lobster` | Optimized for lobster-party integration (lobsterMode + noProviderDiscovery) |
-| `headless` | Minimal TUI for server/CI environments |
-| `minimal` | Basic functionality with no extensions |
+| `lobster` | `lobsterMode: true`, `noProviderDiscovery: true` — for lobster-party pipeline deployments |
+| `headless` | Minimal TUI, reduced interactive features — for server/CI environments |
+| `minimal` | No extensions, no Shoal — barebones execution for constrained environments |
 
+### Idle compaction
+
+When a session is idle (no active turn) and the context window is above the compaction threshold, pisces automatically triggers compaction. No manual `/compact` is required. The idle check fires at the end of each turn; compaction uses the same configurable `firstKeptEntryId` boundary as manual compaction.
+
+### Session observer overlay
+
+Ctrl+S opens a live overlay showing all active subagent sessions for the current pisces process. Each row displays session name, status, current tool in flight, and a progress indicator. The overlay subscribes to two internal channels:
+- `TASK_SUBAGENT_LIFECYCLE_CHANNEL` — `started` / `completed` / `failed` lifecycle signals
+- `TASK_SUBAGENT_PROGRESS_CHANNEL` — in-progress tool activity updates
+
+The overlay updates in real time without blocking the parent session.
+
+### Auto-resume
+
+When pisces starts in a directory with an existing session for that working directory, it resumes the most recent session automatically. No `--continue` flag or interactive prompt required. Disable by passing `--new` to force a fresh session.
+
+### Secrets hash token redaction
+
+Secrets detected in display-path output (TUI rendering, JSON event streams) are replaced with `#XXXX#` tokens before delivery to the terminal or caller. Raw session JSONL is unaffected — redaction is applied at the display layer only.
 
 ---
 
