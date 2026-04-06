@@ -48,7 +48,7 @@ describe("MCP Unix Socket Integration", () => {
 									serverInfo: { name: "test-socket-server", version: "1.0.0" },
 								},
 							};
-							conn.write(JSON.stringify(response) + "\n");
+							conn.write(`${JSON.stringify(response)}\n`);
 						}
 
 						// Handle tool list request
@@ -66,7 +66,7 @@ describe("MCP Unix Socket Integration", () => {
 									],
 								},
 							};
-							conn.write(JSON.stringify(response) + "\n");
+							conn.write(`${JSON.stringify(response)}\n`);
 						}
 
 						// Handle tool call
@@ -78,7 +78,7 @@ describe("MCP Unix Socket Integration", () => {
 									content: [{ type: "text", text: `Echo: ${JSON.stringify(msg.params?.arguments)}` }],
 								},
 							};
-							conn.write(JSON.stringify(response) + "\n");
+							conn.write(`${JSON.stringify(response)}\n`);
 						}
 
 						// Handle notifications (no response needed)

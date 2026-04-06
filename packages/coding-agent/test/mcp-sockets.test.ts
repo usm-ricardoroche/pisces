@@ -78,7 +78,7 @@ describe("MCP Socket Parsing", () => {
 
 		it("uses nc -U for stdio transport", () => {
 			const servers = generateMcpServerNames(["/tmp/mcp.sock"]);
-			expect(servers["shoal_mcp"]).toEqual({
+			expect(servers.shoal_mcp).toEqual({
 				type: "stdio",
 				command: "nc",
 				args: ["-U", "/tmp/mcp.sock"],
@@ -91,7 +91,7 @@ describe("MCP Socket Parsing", () => {
 		});
 
 		it("truncates names to 40 chars", () => {
-			const longPath = "/tmp/" + "a".repeat(50) + ".sock";
+			const longPath = `/tmp/${"a".repeat(50)}.sock`;
 			const servers = generateMcpServerNames([longPath]);
 			const name = Object.keys(servers)[0];
 			// "shoal_" (6) + base (40 max) = 46 chars max
@@ -121,11 +121,11 @@ describe("MCP Socket Parsing", () => {
 			const servers = generateMcpServerNames(sockets);
 
 			expect(Object.keys(servers)).toHaveLength(2);
-			expect(servers["shoal_filesystem"]).toBeDefined();
-			expect(servers["shoal_filesystem"].args).toEqual(["-U", "/tmp/filesystem.sock"]);
+			expect(servers.shoal_filesystem).toBeDefined();
+			expect(servers.shoal_filesystem.args).toEqual(["-U", "/tmp/filesystem.sock"]);
 			// idx=1 gets _1 suffix
-			expect(servers["shoal_search_1"]).toBeDefined();
-			expect(servers["shoal_search_1"].args).toEqual(["-U", "/tmp/search.sock"]);
+			expect(servers.shoal_search_1).toBeDefined();
+			expect(servers.shoal_search_1.args).toEqual(["-U", "/tmp/search.sock"]);
 		});
 
 		it("env var takes precedence over empty config", () => {
