@@ -539,7 +539,7 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	rebuildChatFromMessages(): void {
 		this.chatContainer.clear();
-		const context = this.sessionManager.buildSessionContext();
+		const context = this.session.buildDisplaySessionContext();
 		this.renderSessionContext(context);
 	}
 
@@ -701,7 +701,7 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	/** Restore mode state from session entries on resume (e.g. plan mode). */
 	async #restoreModeFromSession(): Promise<void> {
-		const sessionContext = this.sessionManager.buildSessionContext();
+		const sessionContext = this.session.buildDisplaySessionContext();
 		if (sessionContext.mode === "plan") {
 			const planFilePath = sessionContext.modeData?.planFilePath as string | undefined;
 			await this.#enterPlanMode({ planFilePath });

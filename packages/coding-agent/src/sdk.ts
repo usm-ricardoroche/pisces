@@ -88,7 +88,13 @@ import lobsterFilesystemBehaviorRule from "./prompts/rules/lobster/filesystem-be
 import lobsterGitBehaviorRule from "./prompts/rules/lobster/git-behavior.md" with { type: "text" };
 import lobsterToolBehaviorRule from "./prompts/rules/lobster/tool-behavior.md" with { type: "text" };
 import asyncResultTemplate from "./prompts/tools/async-result.md" with { type: "text" };
-import { collectEnvSecrets, loadSecrets, obfuscateMessages, SecretObfuscator } from "./secrets";
+import {
+	collectEnvSecrets,
+	deobfuscateSessionContext,
+	loadSecrets,
+	obfuscateMessages,
+	SecretObfuscator,
+} from "./secrets";
 import { AgentSession } from "./session/agent-session";
 import { AuthStorage } from "./session/auth-storage";
 import { convertToLlm } from "./session/messages";
@@ -710,8 +716,23 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		return hasKey;
 	};
 
+	// Load and create secret obfuscator early so resumed session state and prompt warnings
+	// reflect actual loaded secrets, not just the setting toggle.
+	let obfuscator: SecretObfuscator | undefined;
+	if (settings.get("secrets.enabled")) {
+		const fileEntries = await logger.timeAsync("loadSecrets", loadSecrets, cwd, agentDir);
+		const envEntries = collectEnvSecrets();
+		const allEntries = [...envEntries, ...fileEntries];
+		if (allEntries.length > 0) {
+			obfuscator = new SecretObfuscator(allEntries);
+		}
+	}
+	const _secretsEnabled = obfuscator?.hasSecrets() === true;
+
 	// Check if session has existing data to restore
-	const existingSession = logger.time("loadSession", () => sessionManager.buildSessionContext());
+	const existingSession = logger.time("loadSession", () =>
+		deobfuscateSessionContext(sessionManager.buildSessionContext(), obfuscator),
+	);
 	const existingBranch = sessionManager.getBranch();
 	const hasExistingSession = existingBranch.length > 0;
 	const hasThinkingEntry = existingBranch.some(entry => entry.type === "thinking_level_change");
@@ -1460,18 +1481,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			return msg;
 		});
 	};
-
-	// Load and create secret obfuscator if secrets are enabled
-	let obfuscator: SecretObfuscator | undefined;
-	if (settings.get("secrets.enabled")) {
-		const fileEntries = await logger.timeAsync("loadSecrets", loadSecrets, cwd, agentDir);
-		const envEntries = collectEnvSecrets();
-		const allEntries = [...envEntries, ...fileEntries];
-		if (allEntries.length > 0) {
-			obfuscator = new SecretObfuscator(allEntries);
-		}
-	}
-
 	// Final convertToLlm: chain block-images filter with secret obfuscation
 	const convertToLlmFinal = (messages: AgentMessage[]): Message[] => {
 		const converted = convertToLlmWithBlockImages(messages);

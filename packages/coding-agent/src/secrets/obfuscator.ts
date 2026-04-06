@@ -1,4 +1,5 @@
 import type { Message, TextContent } from "@oh-my-pi/pi-ai";
+import type { SessionContext } from "../session/session-manager";
 import { compileSecretRegex } from "./regex";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -197,6 +198,15 @@ export class SecretObfuscator {
 		}
 		return undefined;
 	}
+}
+
+export function deobfuscateSessionContext(
+	sessionContext: SessionContext,
+	obfuscator: SecretObfuscator | undefined,
+): SessionContext {
+	if (!obfuscator?.hasSecrets()) return sessionContext;
+	const messages = obfuscator.deobfuscateObject(sessionContext.messages);
+	return messages === sessionContext.messages ? sessionContext : { ...sessionContext, messages };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
