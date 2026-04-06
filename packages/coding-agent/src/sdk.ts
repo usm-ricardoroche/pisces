@@ -727,7 +727,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			obfuscator = new SecretObfuscator(allEntries);
 		}
 	}
-	const _secretsEnabled = obfuscator?.hasSecrets() === true;
 
 	// Check if session has existing data to restore
 	const existingSession = logger.time("loadSession", () =>
@@ -1351,6 +1350,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			mcpDiscoveryMode: hasDiscoverableMCPTools,
 			mcpDiscoveryServerSummaries: discoverableMCPSummary.servers.map(formatDiscoverableMCPToolServerSummary),
 			eagerTasks,
+			secretsEnabled: obfuscator?.hasSecrets() === true,
 		});
 
 		if (options.systemPrompt === undefined) {
@@ -1373,6 +1373,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				mcpDiscoveryMode: hasDiscoverableMCPTools,
 				mcpDiscoveryServerSummaries: discoverableMCPSummary.servers.map(formatDiscoverableMCPToolServerSummary),
 				eagerTasks,
+				secretsEnabled: obfuscator?.hasSecrets() === true,
 			});
 		}
 		return options.systemPrompt(defaultPrompt);
