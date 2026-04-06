@@ -2093,7 +2093,7 @@ export class AgentSession {
 	}
 
 	buildDisplaySessionContext(): SessionContext {
-		return deobfuscateSessionContext(this.buildDisplaySessionContext(), this.#obfuscator);
+		return deobfuscateSessionContext(this.sessionManager.buildSessionContext(), this.#obfuscator);
 	}
 
 	/** Convert session messages using the same pre-LLM pipeline as the active session. */
