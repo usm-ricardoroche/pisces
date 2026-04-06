@@ -37,6 +37,7 @@ interface AppKeybindings {
 	"app.session.tree": true;
 	"app.session.fork": true;
 	"app.session.resume": true;
+	"app.session.observe": true;
 	"app.session.togglePath": true;
 	"app.session.toggleSort": true;
 	"app.session.rename": true;
@@ -143,6 +144,10 @@ export const KEYBINDINGS = {
 	"app.session.resume": {
 		defaultKeys: [],
 		description: "Resume session",
+	},
+	"app.session.observe": {
+		defaultKeys: "ctrl+s",
+		description: "Observe subagent sessions",
 	},
 	"app.session.togglePath": {
 		defaultKeys: "ctrl+p",
