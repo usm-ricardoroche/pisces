@@ -539,11 +539,12 @@ pub fn unquote_text(text: &str) -> String {
 
 pub fn sanitize_node_kind(kind: &str) -> &str {
 	let kind_stripped = kind
-		.trim_suffix("_statement")
-		.trim_suffix("_declaration")
-		.trim_suffix("_definition")
-		.trim_suffix("_item")
-		.trim_suffix("ession"); // _expression -> _expr
+		.strip_suffix("_statement")
+		.or_else(|| kind.strip_suffix("_declaration"))
+		.or_else(|| kind.strip_suffix("_definition"))
+		.or_else(|| kind.strip_suffix("_item"))
+		.or_else(|| kind.strip_suffix("ession")) // _expression -> _expr
+		.unwrap_or(kind);
 	if kind_stripped.is_empty() {
 		kind
 	} else {

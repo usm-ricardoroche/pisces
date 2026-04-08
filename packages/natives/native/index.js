@@ -220,10 +220,11 @@ function loadNative() {
 	throw new Error(`Failed to load pi_natives native addon for ${addonLabel}.\n\nTried:\n${details}\n\n${helpMessage}`);
 }
 
-module.exports = loadNative();
+const _native = loadNative();
+module.exports = _native;
 
 // --- generated const enum exports (do not edit) ---
-exports.AstMatchStrictness = {
+module.exports.AstMatchStrictness = {
   Cst: 'cst',
   Smart: 'smart',
   Ast: 'ast',
@@ -231,7 +232,7 @@ exports.AstMatchStrictness = {
   Signature: 'signature',
   Template: 'template',
 };
-exports.ChunkAnchorStyle = {
+module.exports.ChunkAnchorStyle = {
   Full: 'full',
   Kind: 'kind',
   Bare: 'bare',
@@ -239,7 +240,7 @@ exports.ChunkAnchorStyle = {
   KindOmit: 'kind-omit',
   None: 'none',
 };
-exports.ChunkEditOp = {
+module.exports.ChunkEditOp = {
   Replace: 'replace',
   Delete: 'delete',
   Before: 'before',
@@ -247,52 +248,52 @@ exports.ChunkEditOp = {
   Prepend: 'prepend',
   Append: 'append',
 };
-exports.ChunkFocusMode = {
+module.exports.ChunkFocusMode = {
   Expanded: 'expanded',
   Collapsed: 'collapsed',
   Container: 'container',
 };
-exports.ChunkReadStatus = {
+module.exports.ChunkReadStatus = {
   Ok: 'ok',
   NotFound: 'not_found',
   UnsupportedRegion: 'unsupported_region',
 };
-exports.ChunkRegion = {
+module.exports.ChunkRegion = {
   Head: 'head',
   Body: 'body',
   Tail: 'tail',
 };
-exports.Ellipsis = {
+module.exports.Ellipsis = {
   Unicode: 0,
   Ascii: 1,
   Omit: 2,
 };
-exports.FileType = {
+module.exports.FileType = {
   File: 1,
   Dir: 2,
   Symlink: 3,
 };
-exports.GrepOutputMode = {
+module.exports.GrepOutputMode = {
   Content: 'content',
   Count: 'count',
   FilesWithMatches: 'filesWithMatches',
 };
-exports.ImageFormat = {
+module.exports.ImageFormat = {
   PNG: 0,
   JPEG: 1,
   WEBP: 2,
   GIF: 3,
 };
-exports.KeyEventType = {
+module.exports.KeyEventType = {
   Press: 1,
   Repeat: 2,
   Release: 3,
 };
-exports.MacOSAppearance = {
+module.exports.MacOSAppearance = {
   Dark: 'dark',
   Light: 'light',
 };
-exports.SamplingFilter = {
+module.exports.SamplingFilter = {
   Nearest: 1,
   Triangle: 2,
   CatmullRom: 3,
@@ -300,3 +301,59 @@ exports.SamplingFilter = {
   Lanczos3: 5,
 };
 // --- end generated const enum exports ---
+
+// --- JS polyfills for functions/enums/classes declared in .d.ts but missing from the .node binary ---
+// The prebuilt native binary is stale and doesn't export these. Once rebuilt with
+// Rust nightly (for trim_prefix_suffix), these can be removed.
+
+let _defaultTabWidth = 4;
+module.exports.getDefaultTabWidth = function getDefaultTabWidth() { return _defaultTabWidth; };
+module.exports.setDefaultTabWidth = function setDefaultTabWidth(width) { _defaultTabWidth = width; };
+module.exports.getIndentation = function getIndentation(_file, _projectDir) {
+	// Simple heuristic: return default tab width for all files
+	return _defaultTabWidth;
+};
+module.exports.formatAnchor = function formatAnchor(style, filePath, line, col) {
+	switch (style) {
+		case "full": return filePath + ":" + line + ":" + col;
+		case "kind": return filePath + ":" + line;
+		case "bare": return line + ":" + col;
+		default: return filePath + ":" + line + ":" + col;
+	}
+};
+
+// MacOSPowerAssertion — prevents sleep during agent sessions (macOS only).
+// Stub: no-op when native binary is stale or on non-macOS.
+module.exports.MacOSPowerAssertion = class MacOSPowerAssertion {
+	static start(_options) {
+		if (process.platform !== 'darwin') return null;
+		return new MacOSPowerAssertion();
+	}
+	stop() {}
+};
+
+// ChunkState — tree-sitter based chunk parser for structured editing.
+// Stub: provides the API surface but throws on parse(). The real implementation
+// requires rebuilding pi-natives with Rust nightly.
+module.exports.ChunkState = class ChunkState {
+	static parse(_source, _language) {
+		throw new Error('ChunkState.parse() requires a rebuilt pi-natives native addon.');
+	}
+	get language() { return undefined; }
+	get source() { return undefined; }
+	get checksum() { return ''; }
+	get lineCount() { return 0; }
+	get parseErrors() { return 0; }
+	get fallback() { return false; }
+	get rootPath() { return ''; }
+	get rootChildren() { return []; }
+	get chunkCount() { return 0; }
+	root() { return null; }
+	chunk() { return null; }
+	chunks() { return []; }
+	children() { return []; }
+	lineToContainingChunkPath() { return null; }
+	render() { return ''; }
+	read() { return ''; }
+};
+
