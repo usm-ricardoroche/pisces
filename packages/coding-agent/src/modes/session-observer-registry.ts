@@ -1,5 +1,5 @@
-import type { AgentProgress, SubagentLifecyclePayload, SubagentProgressPayload } from "../task/types";
-import { TASK_SUBAGENT_LIFECYCLE_CHANNEL, TASK_SUBAGENT_PROGRESS_CHANNEL } from "../task/types";
+import type { AgentProgress, SubagentLifecyclePayload, SubagentProgressPayload } from "../task";
+import { TASK_SUBAGENT_LIFECYCLE_CHANNEL, TASK_SUBAGENT_PROGRESS_CHANNEL } from "../task";
 import type { EventBus } from "../utils/event-bus";
 
 export interface ObservableSession {
@@ -27,15 +27,14 @@ export class SessionObserverRegistry {
 	#listeners = new Set<() => void>();
 	#eventBusUnsubscribers: Array<() => void> = [];
 
+	/** Add a change listener. Returns unsubscribe function. */
 	onChange(cb: () => void): () => void {
 		this.#listeners.add(cb);
 		return () => this.#listeners.delete(cb);
 	}
 
 	#notifyListeners(): void {
-		for (const cb of this.#listeners) {
-			cb();
-		}
+		for (const cb of this.#listeners) cb();
 	}
 
 	setMainSession(sessionFile?: string): void {
@@ -63,21 +62,10 @@ export class SessionObserverRegistry {
 
 	getActiveSubagentCount(): number {
 		let count = 0;
-		for (const session of this.#sessions.values()) {
-			if (session.kind === "subagent" && session.status === "active") {
-				count += 1;
-			}
+		for (const s of this.#sessions.values()) {
+			if (s.kind === "subagent" && s.status === "active") count++;
 		}
 		return count;
-	}
-
-	dispose(): void {
-		for (const unsubscribe of this.#eventBusUnsubscribers) {
-			unsubscribe();
-		}
-		this.#eventBusUnsubscribers = [];
-		this.#sessions.clear();
-		this.#listeners.clear();
 	}
 
 	/** Clear all tracked sessions (e.g. on session switch). Keeps EventBus subscriptions and listeners. */
@@ -86,30 +74,30 @@ export class SessionObserverRegistry {
 		this.#notifyListeners();
 	}
 
+	dispose(): void {
+		for (const unsub of this.#eventBusUnsubscribers) unsub();
+		this.#eventBusUnsubscribers = [];
+		this.#sessions.clear();
+		this.#listeners.clear();
+	}
+
 	subscribeToEventBus(eventBus: EventBus): void {
-		for (const unsubscribe of this.#eventBusUnsubscribers) {
-			unsubscribe();
-		}
+		// Dispose previous EventBus subscriptions if called again
+		for (const unsub of this.#eventBusUnsubscribers) unsub();
 		this.#eventBusUnsubscribers = [];
 
 		this.#eventBusUnsubscribers.push(
 			eventBus.on(TASK_SUBAGENT_LIFECYCLE_CHANNEL, data => {
 				const payload = data as SubagentLifecyclePayload;
 				const status = STATUS_MAP[payload.status];
-				if (!status) {
-					return;
-				}
+				if (!status) return;
 
 				const existing = this.#sessions.get(payload.id);
 				if (existing) {
 					existing.status = status;
 					existing.lastUpdate = Date.now();
-					if (payload.description) {
-						existing.description = payload.description;
-					}
-					if (payload.sessionFile) {
-						existing.sessionFile = payload.sessionFile;
-					}
+					if (payload.description) existing.description = payload.description;
+					if (payload.sessionFile) existing.sessionFile = payload.sessionFile;
 				} else {
 					this.#sessions.set(payload.id, {
 						id: payload.id,
@@ -136,12 +124,8 @@ export class SessionObserverRegistry {
 				if (existing) {
 					existing.lastUpdate = Date.now();
 					existing.progress = progress;
-					if (progress.description) {
-						existing.description = progress.description;
-					}
-					if (payload.sessionFile) {
-						existing.sessionFile = payload.sessionFile;
-					}
+					if (progress.description) existing.description = progress.description;
+					if (payload.sessionFile) existing.sessionFile = payload.sessionFile;
 				} else {
 					this.#sessions.set(id, {
 						id,

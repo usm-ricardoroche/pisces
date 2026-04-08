@@ -5,7 +5,6 @@
  * to avoid import resolution issues with custom tools loaded from user directories.
  */
 import * as path from "node:path";
-import * as piCodingAgent from "@oh-my-pi/pi-coding-agent";
 import { logger } from "@oh-my-pi/pi-utils";
 import * as typebox from "@sinclair/typebox";
 import { toolCapability } from "../../capability/tool";
@@ -85,7 +84,12 @@ export class CustomToolLoader {
 	#sharedApi: CustomToolAPI;
 	#seenNames: Set<string>;
 
-	constructor(cwd: string, builtInToolNames: string[], pendingActionStore?: PendingActionStore) {
+	constructor(
+		pi: typeof import("@oh-my-pi/pi-coding-agent"),
+		cwd: string,
+		builtInToolNames: string[],
+		pendingActionStore?: PendingActionStore,
+	) {
 		this.#sharedApi = {
 			cwd,
 			exec: (command: string, args: string[], options?: ExecOptions) =>
@@ -94,7 +98,7 @@ export class CustomToolLoader {
 			hasUI: false,
 			logger,
 			typebox,
-			pi: piCodingAgent,
+			pi,
 			pushPendingAction: action => {
 				if (!pendingActionStore) {
 					throw new Error("Pending action store unavailable for custom tools in this runtime.");
@@ -157,7 +161,12 @@ export async function loadCustomTools(
 	builtInToolNames: string[],
 	pendingActionStore?: PendingActionStore,
 ) {
-	const loader = new CustomToolLoader(cwd, builtInToolNames, pendingActionStore);
+	const loader = new CustomToolLoader(
+		await import("@oh-my-pi/pi-coding-agent"),
+		cwd,
+		builtInToolNames,
+		pendingActionStore,
+	);
 	await loader.load(pathsWithSources);
 	return {
 		tools: loader.tools,

@@ -14,7 +14,7 @@ import type { MCPManager } from "../mcp";
 import type { AgentSession, AgentSessionEvent } from "../session/agent-session";
 import type { HistoryStorage } from "../session/history-storage";
 import type { SessionContext, SessionManager } from "../session/session-manager";
-import type { ExitPlanModeDetails } from "../tools";
+import type { ExitPlanModeDetails, LspStartupServerInfo } from "../tools";
 import type { AssistantMessageComponent } from "./components/assistant-message";
 import type { BashExecutionComponent } from "./components/bash-execution";
 import type { CustomEditor } from "./components/custom-editor";
@@ -76,7 +76,7 @@ export interface InteractiveModeContext {
 	agent: AgentSession["agent"];
 	historyStorage?: HistoryStorage;
 	mcpManager?: MCPManager;
-	lspServers?: Array<{ name: string; status: "ready" | "error"; fileTypes: string[]; error?: string }>;
+	lspServers?: LspStartupServerInfo[];
 
 	// State
 	isInitialized: boolean;
@@ -208,6 +208,8 @@ export interface InteractiveModeContext {
 	showOAuthSelector(mode: "login" | "logout", providerId?: string): Promise<void>;
 	showHookConfirm(title: string, message: string): Promise<boolean>;
 	showDebugSelector(): void;
+	showSessionObserver(): void;
+	resetObserverRegistry(): void;
 
 	showSessionObserver(): void;
 	resetObserverRegistry(): void;

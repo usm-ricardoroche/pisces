@@ -15,10 +15,9 @@ import {
 } from "@oh-my-pi/pi-ai";
 import type { Component, SlashCommand } from "@oh-my-pi/pi-tui";
 import { Container, Loader, Markdown, ProcessTerminal, Spacer, Text, TUI, visibleWidth } from "@oh-my-pi/pi-tui";
-import { APP_NAME, getProjectDir, hsvToRgb, isEnoent, logger, postmortem } from "@oh-my-pi/pi-utils";
+import { APP_NAME, getProjectDir, hsvToRgb, isEnoent, logger, postmortem, prompt } from "@oh-my-pi/pi-utils";
 import chalk from "chalk";
 import { KeybindingsManager } from "../config/keybindings";
-import { renderPromptTemplate } from "../config/prompt-templates";
 import { type Settings, settings } from "../config/settings";
 import type {
 	ExtensionUIContext,
@@ -29,6 +28,7 @@ import type {
 import type { CompactOptions } from "../extensibility/extensions/types";
 import { BUILTIN_SLASH_COMMANDS, loadSlashCommands } from "../extensibility/slash-commands";
 import { resolveLocalUrlToPath } from "../internal-urls";
+import { LSP_STARTUP_EVENT_CHANNEL, type LspStartupEvent } from "../lsp/startup-events";
 import { renameApprovedPlanFile } from "../plan-mode/approved-plan";
 import planModeApprovedPrompt from "../prompts/system/plan-mode-approved.md" with { type: "text" };
 import type { AgentSession, AgentSessionEvent } from "../session/agent-session";
@@ -36,7 +36,7 @@ import { HistoryStorage } from "../session/history-storage";
 import type { SessionContext, SessionManager } from "../session/session-manager";
 import { getRecentSessions } from "../session/session-manager";
 import { STTController, type SttState } from "../stt";
-import type { ExitPlanModeDetails } from "../tools";
+import type { ExitPlanModeDetails, LspStartupServerInfo } from "../tools";
 import type { EventBus } from "../utils/event-bus";
 import { getEditorCommand, openInEditor } from "../utils/external-editor";
 import { popTerminalTitle, pushTerminalTitle, setSessionTerminalTitle } from "../utils/title-generator";
@@ -50,7 +50,7 @@ import type { HookSelectorComponent } from "./components/hook-selector";
 import type { PythonExecutionComponent } from "./components/python-execution";
 import { StatusLineComponent } from "./components/status-line";
 import type { ToolExecutionHandle } from "./components/tool-execution";
-import { WelcomeComponent } from "./components/welcome";
+import { WelcomeComponent, type LspServerInfo as WelcomeLspServerInfo } from "./components/welcome";
 import { BtwController } from "./controllers/btw-controller";
 import { CommandController } from "./controllers/command-controller";
 import { EventController } from "./controllers/event-controller";
@@ -166,9 +166,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	#pendingModelSwitch: { model: Model; thinkingLevel?: ThinkingLevel } | undefined;
 	#planModeHasEntered = false;
 	#planReviewContainer: Container | undefined;
-	readonly lspServers:
-		| Array<{ name: string; status: "ready" | "error"; fileTypes: string[]; error?: string }>
-		| undefined = undefined;
+	readonly lspServers: LspStartupServerInfo[] | undefined = undefined;
 	mcpManager?: import("../mcp").MCPManager;
 	readonly #toolUiContextSetter: (uiContext: ExtensionUIContext, hasUI: boolean) => void;
 
@@ -187,15 +185,15 @@ export class InteractiveMode implements InteractiveModeContext {
 	#resizeHandler?: () => void;
 	#observerRegistry: SessionObserverRegistry;
 	#eventBus?: EventBus;
+	#eventBusUnsubscribers: Array<() => void> = [];
+	#welcomeComponent?: WelcomeComponent;
 
 	constructor(
 		session: AgentSession,
 		version: string,
 		changelogMarkdown: string | undefined = undefined,
 		setToolUIContext: (uiContext: ExtensionUIContext, hasUI: boolean) => void = () => {},
-		lspServers:
-			| Array<{ name: string; status: "ready" | "error"; fileTypes: string[]; error?: string }>
-			| undefined = undefined,
+		lspServers: LspStartupServerInfo[] | undefined = undefined,
 		mcpManager?: import("../mcp").MCPManager,
 		eventBus?: EventBus,
 	) {
@@ -209,8 +207,15 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#toolUiContextSetter = setToolUIContext;
 		this.lspServers = lspServers;
 		this.mcpManager = mcpManager;
-
 		this.#eventBus = eventBus;
+		if (eventBus) {
+			this.#eventBusUnsubscribers.push(
+				eventBus.on(LSP_STARTUP_EVENT_CHANNEL, data => {
+					this.#handleLspStartupEvent(data as LspStartupEvent);
+				}),
+			);
+		}
+
 		this.ui = new TUI(new ProcessTerminal(), settings.get("showHardwareCursor"));
 		this.ui.setClearOnShrink(settings.get("clearOnShrink"));
 		setMermaidRenderCallback(() => this.ui.requestRender());
@@ -290,13 +295,16 @@ export class InteractiveMode implements InteractiveModeContext {
 	async init(): Promise<void> {
 		if (this.isInitialized) return;
 
-		this.keybindings = logger.time("InteractiveMode.init:keybindings", () => KeybindingsManager.create());
+		logger.time("InteractiveMode.init:keybindings");
+		this.keybindings = KeybindingsManager.create();
 
 		// Register session manager flush for signal handlers (SIGINT, SIGTERM, SIGHUP)
 		this.#cleanupUnsubscribe = postmortem.register("session-manager-flush", () => this.sessionManager.flush());
 
-		await logger.timeAsync("InteractiveMode.init:slashCommands", () =>
-			this.refreshSlashCommandState(getProjectDir()),
+		await logger.time(
+			"InteractiveMode.init:slashCommands",
+			this.refreshSlashCommandState.bind(this),
+			getProjectDir(),
 		);
 
 		// Get current model info for welcome screen
@@ -304,7 +312,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		const providerName = this.session.model?.provider ?? "Unknown";
 
 		// Get recent sessions
-		const recentSessions = await logger.timeAsync("InteractiveMode.init:recentSessions", () =>
+		const recentSessions = await logger.time("InteractiveMode.init:recentSessions", () =>
 			getRecentSessions(this.sessionManager.getSessionDir()).then(sessions =>
 				sessions.map(s => ({
 					name: s.name,
@@ -313,15 +321,8 @@ export class InteractiveMode implements InteractiveModeContext {
 			),
 		);
 
-		// Convert LSP servers to welcome format
-		const lspServerInfo =
-			this.lspServers?.map(s => ({
-				name: s.name,
-				status: s.status as "ready" | "error" | "connecting",
-				fileTypes: s.fileTypes,
-			})) ?? [];
-
 		const startupQuiet = settings.get("startup.quiet");
+		this.#welcomeComponent = undefined;
 
 		for (const warning of this.session.configWarnings) {
 			this.ui.addChild(new Text(theme.fg("warning", `Warning: ${warning}`), 1, 0));
@@ -330,11 +331,17 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		if (!startupQuiet) {
 			// Add welcome header
-			const welcome = new WelcomeComponent(this.#version, modelName, providerName, recentSessions, lspServerInfo);
+			this.#welcomeComponent = new WelcomeComponent(
+				this.#version,
+				modelName,
+				providerName,
+				recentSessions,
+				this.#getWelcomeLspServers(),
+			);
 
 			// Setup UI layout
 			this.ui.addChild(new Spacer(1));
-			this.ui.addChild(welcome);
+			this.ui.addChild(this.#welcomeComponent);
 			this.ui.addChild(new Spacer(1));
 
 			// Add changelog if provided
@@ -640,58 +647,42 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.ui.requestRender();
 	}
 
-	async #applyTemporaryModelState(state: { model: Model; thinkingLevel?: ThinkingLevel }): Promise<void> {
-		const currentModel = this.session.model;
-		if (currentModel && modelsAreEqual(currentModel, state.model)) {
-			if (this.session.thinkingLevel !== state.thinkingLevel) {
-				this.session.setThinkingLevel(state.thinkingLevel);
-			}
-			return;
-		}
-		await this.session.setModelTemporary(state.model, state.thinkingLevel);
-	}
-
 	async #applyPlanModeModel(): Promise<void> {
-		const resolvedPlanModel = this.session.resolveRoleModelWithThinking("plan");
-		const planModel = resolvedPlanModel.model;
-		if (!planModel) return;
-		const nextState = {
-			model: planModel,
-			thinkingLevel: resolvedPlanModel.explicitThinkingLevel
-				? resolvedPlanModel.thinkingLevel
-				: this.session.thinkingLevel,
-		};
+		const resolved = this.session.resolveRoleModelWithThinking("plan");
+		if (!resolved.model) return;
+
 		const currentModel = this.session.model;
-		if (
-			currentModel &&
-			modelsAreEqual(currentModel, nextState.model) &&
-			this.session.thinkingLevel === nextState.thinkingLevel
-		) {
-			return;
-		}
+		const sameModel = modelsAreEqual(currentModel, resolved.model);
+		const planThinkingLevel = resolved.explicitThinkingLevel ? resolved.thinkingLevel : undefined;
+
 		this.#planModePreviousModelState = currentModel
 			? { model: currentModel, thinkingLevel: this.session.thinkingLevel }
 			: undefined;
-		if (this.session.isStreaming) {
-			this.#pendingModelSwitch = nextState;
-			return;
-		}
-		try {
-			await this.#applyTemporaryModelState(nextState);
-		} catch (error) {
-			this.showWarning(
-				`Failed to switch to plan model for plan mode: ${error instanceof Error ? error.message : String(error)}`,
-			);
+
+		if (!sameModel) {
+			if (this.session.isStreaming) {
+				this.#pendingModelSwitch = { model: resolved.model, thinkingLevel: planThinkingLevel };
+				return;
+			}
+			try {
+				await this.session.setModelTemporary(resolved.model, planThinkingLevel);
+			} catch (error) {
+				this.showWarning(
+					`Failed to switch to plan model for plan mode: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		} else if (planThinkingLevel) {
+			this.session.setThinkingLevel(planThinkingLevel);
 		}
 	}
 
 	/** Apply any deferred model switch after the current stream ends. */
 	async flushPendingModelSwitch(): Promise<void> {
-		const state = this.#pendingModelSwitch;
-		if (!state) return;
+		const pending = this.#pendingModelSwitch;
+		if (!pending) return;
 		this.#pendingModelSwitch = undefined;
 		try {
-			await this.#applyTemporaryModelState(state);
+			await this.session.setModelTemporary(pending.model, pending.thinkingLevel);
 		} catch (error) {
 			this.showWarning(
 				`Failed to switch model after streaming: ${error instanceof Error ? error.message : String(error)}`,
@@ -701,7 +692,7 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	/** Restore mode state from session entries on resume (e.g. plan mode). */
 	async #restoreModeFromSession(): Promise<void> {
-		const sessionContext = this.session.buildDisplaySessionContext();
+		const sessionContext = this.sessionManager.buildSessionContext();
 		if (sessionContext.mode === "plan") {
 			const planFilePath = sessionContext.modeData?.planFilePath as string | undefined;
 			await this.#enterPlanMode({ planFilePath });
@@ -755,20 +746,19 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (previousTools && previousTools.length > 0) {
 			await this.session.setActiveToolsByName(previousTools);
 		}
-		const previousModelState = this.#planModePreviousModelState;
-		if (previousModelState) {
-			if (modelsAreEqual(this.session.model, previousModelState.model)) {
+		if (this.#planModePreviousModelState) {
+			const prev = this.#planModePreviousModelState;
+			if (modelsAreEqual(this.session.model, prev.model)) {
 				// Same model — only thinking level may differ. Avoid setModelTemporary()
 				// which would reset provider-side sessions (openai-responses/Codex) and
 				// break conversation continuity.
-				this.session.setThinkingLevel(previousModelState.thinkingLevel);
+				this.session.setThinkingLevel(prev.thinkingLevel);
 			} else if (this.session.isStreaming) {
-				this.#pendingModelSwitch = previousModelState;
+				this.#pendingModelSwitch = { model: prev.model, thinkingLevel: prev.thinkingLevel };
 			} else {
-				await this.#applyTemporaryModelState(previousModelState);
+				await this.session.setModelTemporary(prev.model, prev.thinkingLevel);
 			}
 		}
-
 		this.session.setPlanModeState(undefined);
 		this.planModeEnabled = false;
 		this.planModePaused = options?.paused ?? false;
@@ -796,17 +786,21 @@ export class InteractiveMode implements InteractiveModeContext {
 	}
 
 	#renderPlanPreview(planContent: string): void {
-		if (!this.#planReviewContainer) {
-			this.#planReviewContainer = new Container();
-			this.chatContainer.addChild(this.#planReviewContainer);
+		const planReviewContainer = this.#planReviewContainer ?? new Container();
+		if (this.#planReviewContainer) {
+			// Re-append the preview so repeated plan-review refreshes stay adjacent to the
+			// active selector instead of updating an older off-screen preview in place.
+			this.chatContainer.removeChild(this.#planReviewContainer);
 		}
-		this.#planReviewContainer.clear();
-		this.#planReviewContainer.addChild(new Spacer(1));
-		this.#planReviewContainer.addChild(new DynamicBorder());
-		this.#planReviewContainer.addChild(new Text(theme.bold(theme.fg("accent", "Plan Review")), 1, 1));
-		this.#planReviewContainer.addChild(new Spacer(1));
-		this.#planReviewContainer.addChild(new Markdown(planContent, 1, 1, getMarkdownTheme()));
-		this.#planReviewContainer.addChild(new DynamicBorder());
+		planReviewContainer.clear();
+		planReviewContainer.addChild(new Spacer(1));
+		planReviewContainer.addChild(new DynamicBorder());
+		planReviewContainer.addChild(new Text(theme.bold(theme.fg("accent", "Plan Review")), 1, 1));
+		planReviewContainer.addChild(new Spacer(1));
+		planReviewContainer.addChild(new Markdown(planContent, 1, 1, getMarkdownTheme()));
+		planReviewContainer.addChild(new DynamicBorder());
+		this.chatContainer.addChild(planReviewContainer);
+		this.#planReviewContainer = planReviewContainer;
 		this.ui.requestRender();
 	}
 
@@ -912,11 +906,11 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 		this.session.setPlanReferencePath(options.finalPlanFilePath);
 		this.session.markPlanReferenceSent();
-		const prompt = renderPromptTemplate(planModeApprovedPrompt, {
+		const planModePrompt = prompt.render(planModeApprovedPrompt, {
 			planContent,
 			finalPlanFilePath: options.finalPlanFilePath,
 		});
-		await this.session.prompt(prompt, { synthetic: true });
+		await this.session.prompt(planModePrompt, { synthetic: true });
 	}
 
 	async handlePlanModeCommand(initialPrompt?: string): Promise<void> {
@@ -1005,7 +999,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 		this.#extensionUiController.clearExtensionTerminalInputListeners();
 		this.#extensionUiController.clearHookWidgets();
+		for (const unsubscribe of this.#eventBusUnsubscribers) {
+			unsubscribe();
+		}
+		this.#eventBusUnsubscribers = [];
 		this.#observerRegistry.dispose();
+		this.#eventController.dispose();
 		this.statusLine.dispose();
 		if (this.#resizeHandler) {
 			process.stdout.removeListener("resize", this.#resizeHandler);
@@ -1033,7 +1032,6 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		// Emit shutdown event to hooks
 		await this.session.dispose();
-		this.#eventController.dispose();
 
 		if (this.isInitialized) {
 			this.ui.requestRender(true);
@@ -1101,6 +1099,48 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	showWarning(message: string): void {
 		this.#uiHelpers.showWarning(message);
+	}
+
+	#handleLspStartupEvent(event: LspStartupEvent): void {
+		this.#updateWelcomeLspServers();
+
+		if (event.type === "failed") {
+			this.showWarning(`LSP startup failed: ${event.error}. It will retry lazily on write.`);
+			return;
+		}
+
+		const failedServers = event.servers.filter(server => server.status === "error");
+
+		if (failedServers.length === 1) {
+			const failedServer = failedServers[0];
+			const detail = failedServer.error ? `: ${failedServer.error}` : "";
+			this.showWarning(`LSP startup failed for ${failedServer.name}${detail}. It will retry lazily on write.`);
+			return;
+		}
+
+		if (failedServers.length > 1) {
+			const failedNames = failedServers.map(server => server.name).join(", ");
+			this.showWarning(`LSP startup failed for ${failedNames}. It will retry lazily on write.`);
+		}
+	}
+
+	#getWelcomeLspServers(): WelcomeLspServerInfo[] {
+		return (
+			this.lspServers?.map(server => ({
+				name: server.name,
+				status: server.status,
+				fileTypes: server.fileTypes,
+			})) ?? []
+		);
+	}
+
+	#updateWelcomeLspServers(): void {
+		if (!this.#welcomeComponent) {
+			return;
+		}
+
+		this.#welcomeComponent.setLspServers(this.#getWelcomeLspServers());
+		this.ui.requestRender();
 	}
 
 	ensureLoadingAnimation(): void {
@@ -1359,6 +1399,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#observerRegistry.resetSessions();
 		this.#observerRegistry.setMainSession(this.sessionManager.getSessionFile() ?? undefined);
 	}
+
 	handleBashCommand(command: string, excludeFromContext?: boolean): Promise<void> {
 		return this.#commandController.handleBashCommand(command, excludeFromContext);
 	}
@@ -1432,6 +1473,7 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	handleResumeSession(sessionPath: string): Promise<void> {
 		this.#btwController.dispose();
+		this.resetObserverRegistry();
 		return this.#selectorController.handleResumeSession(sessionPath);
 	}
 

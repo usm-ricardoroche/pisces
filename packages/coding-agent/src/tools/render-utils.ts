@@ -5,17 +5,17 @@
  * tool renderers to ensure a unified TUI experience.
  */
 import * as os from "node:os";
-import { type Ellipsis, truncateToWidth } from "@oh-my-pi/pi-tui";
-import { getIndentation, pluralize } from "@oh-my-pi/pi-utils";
+import * as path from "node:path";
+import type { Ellipsis } from "@oh-my-pi/pi-natives";
+import { replaceTabs, truncateToWidth } from "@oh-my-pi/pi-tui";
+import { pluralize } from "@oh-my-pi/pi-utils";
 import { settings } from "../config/settings";
 import type { Theme } from "../modes/theme/theme";
 import { formatDimensionNote, type ResizedImage } from "../utils/image-resize";
 
-export { Ellipsis, truncateToWidth } from "@oh-my-pi/pi-tui";
+export { Ellipsis } from "@oh-my-pi/pi-natives";
+export { replaceTabs, truncateToWidth } from "@oh-my-pi/pi-tui";
 
-export function replaceTabs(text: string, file?: string): string {
-	return text.replaceAll("\t", getIndentation(file));
-}
 // =============================================================================
 // Standardized Display Constants
 // =============================================================================
@@ -546,6 +546,20 @@ export function shortenPath(filePath: string, homeDir?: string): string {
 		return `~${filePath.slice(home.length)}`;
 	}
 	return filePath;
+}
+
+export function formatToolWorkingDirectory(workdir: string | undefined, projectDir: string): string | undefined {
+	if (!workdir) return undefined;
+	const resolvedProjectDir = path.resolve(projectDir);
+	const resolvedWorkdir = path.resolve(projectDir, workdir);
+	if (resolvedWorkdir === resolvedProjectDir) {
+		return undefined;
+	}
+	const relativePath = path.relative(resolvedProjectDir, resolvedWorkdir);
+	const isWithinProject =
+		relativePath.length > 0 && !relativePath.startsWith("..") && !relativePath.startsWith(`..${path.sep}`);
+	const displayWorkdir = isWithinProject ? relativePath : shortenPath(resolvedWorkdir);
+	return replaceTabs(displayWorkdir);
 }
 
 export function formatScreenshot(opts: {

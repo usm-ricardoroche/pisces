@@ -52,6 +52,7 @@ const LANGUAGE_MAP: Record<string, string> = {
 	".zsh": "shellscript",
 	".fish": "fish",
 	".pl": "perl",
+	".pm": "perl",
 	".php": "php",
 
 	// JVM languages
@@ -76,6 +77,7 @@ const LANGUAGE_MAP: Record<string, string> = {
 	".less": "less",
 	".vue": "vue",
 	".svelte": "svelte",
+	".astro": "astro",
 
 	// Data formats
 	".json": "json",
@@ -129,6 +131,8 @@ const LANGUAGE_MAP: Record<string, string> = {
 	".psm1": "powershell",
 	".bat": "bat",
 	".cmd": "bat",
+	".tla": "tlaplus",
+	".tlaplus": "tlaplus",
 };
 
 /**
@@ -140,11 +144,14 @@ export function detectLanguageId(filePath: string): string {
 	const basename = path.basename(filePath).toLowerCase();
 
 	// Handle special filenames
-	if (basename === "dockerfile" || basename.startsWith("dockerfile.")) {
+	if (basename === "dockerfile" || basename.startsWith("dockerfile.") || basename === "containerfile") {
 		return "dockerfile";
 	}
 	if (basename === "makefile" || basename === "gnumakefile") {
 		return "makefile";
+	}
+	if (basename === "justfile") {
+		return "just";
 	}
 	if (basename === "cmakelists.txt" || ext === ".cmake") {
 		return "cmake";

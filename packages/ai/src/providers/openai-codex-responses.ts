@@ -1,5 +1,5 @@
 import * as os from "node:os";
-import { $env, abortableSleep, asRecord, logger, readSseJson } from "@oh-my-pi/pi-utils";
+import { $env, abortableSleep, asRecord, logger, readSseJson, structuredCloneJSON } from "@oh-my-pi/pi-utils";
 import type OpenAI from "openai";
 import type {
 	ResponseFunctionToolCall,
@@ -587,7 +587,7 @@ async function openCodexWebSocketTransport(
 		"websocket",
 		websocketState,
 	);
-	const requestBodyForState = cloneRequestBody(requestContext.transformedBody);
+	const requestBodyForState = structuredCloneJSON(requestContext.transformedBody);
 	logCodexDebug("codex websocket request", {
 		url: toWebSocketUrl(requestContext.url),
 		model: requestContext.transformedBody.model,
@@ -632,7 +632,7 @@ async function openCodexSseTransport(
 			requestSetup.requestSignal,
 		),
 	);
-	return { eventStream, requestBodyForState: cloneRequestBody(body), transport: "sse" };
+	return { eventStream, requestBodyForState: structuredCloneJSON(body), transport: "sse" };
 }
 
 async function reopenCodexWebSocketRuntimeStream(
@@ -958,9 +958,8 @@ function handleOutputItemDone(
 	rawEvent: Record<string, unknown>,
 	blockIndex: () => number,
 ): void {
-	const item = rawEvent.item as CodexEventItem;
-	const rawItem = item as unknown as Record<string, unknown>;
-	runtime.nativeOutputItems.push(structuredClone(rawItem));
+	const item = structuredCloneJSON(rawEvent.item) as CodexEventItem;
+	runtime.nativeOutputItems.push(item as unknown as Record<string, unknown>);
 
 	if (item.type === "reasoning" && runtime.currentBlock?.type === "thinking") {
 		runtime.currentBlock.thinking = item.summary?.map(summary => summary.text).join("\n\n") || "";
@@ -1054,7 +1053,7 @@ function handleResponseCompleted(
 
 	const state = runtime.websocketState;
 	if (runtime.transport === "websocket" && state) {
-		state.lastRequest = cloneRequestBody(runtime.requestBodyForState);
+		state.lastRequest = structuredCloneJSON(runtime.requestBodyForState);
 		if (typeof response?.id === "string" && response.id.length > 0) {
 			state.lastResponseId = response.id;
 		}
@@ -1383,6 +1382,7 @@ export async function prewarmOpenAICodexResponses(
 	if (!sessionKey || !providerSessionState) return;
 	const state = getCodexWebSocketSessionState(sessionKey, providerSessionState);
 	if (!shouldUseCodexWebSocket(model, state, options?.preferWebsockets)) return;
+	logger.time("prewarmCodex:createHeaders");
 	const headers = createCodexHeaders(
 		{ ...(model.headers ?? {}), ...(options?.headers ?? {}) },
 		accountId,
@@ -1391,12 +1391,9 @@ export async function prewarmOpenAICodexResponses(
 		"websocket",
 		state,
 	);
+	logger.time("prewarmCodex:establishWs");
 	await getOrCreateCodexWebSocketConnection(state, toWebSocketUrl(url), headers, options?.signal);
 	state.prewarmed = true;
-}
-
-function cloneRequestBody(body: RequestBody): RequestBody {
-	return JSON.parse(JSON.stringify(body)) as RequestBody;
 }
 
 function getCodexWebSocketSessionKey(
@@ -1628,6 +1625,7 @@ class CodexWebSocketConnection {
 	async connect(signal?: AbortSignal): Promise<void> {
 		if (this.isOpen()) return;
 		if (this.#connectPromise) {
+			logger.time("codexWs:awaitSharedHandshake");
 			await this.#connectPromise;
 			return;
 		}
@@ -1719,6 +1717,7 @@ class CodexWebSocketConnection {
 			}
 		});
 
+		logger.time("codexWs:awaitTcpHandshake");
 		try {
 			await promise;
 		} finally {
@@ -1832,6 +1831,7 @@ async function getOrCreateCodexWebSocketConnection(
 	const headerRecord = headersToRecord(headers);
 	if (state.connection?.isOpen()) {
 		if (state.connection.matchesAuth(headerRecord)) {
+			logger.time("codexWs:reuseOpenSocket");
 			return state.connection;
 		}
 		state.connection.close("token-refresh");
@@ -1839,6 +1839,7 @@ async function getOrCreateCodexWebSocketConnection(
 	}
 	state.connection?.close("reconnect");
 	resetCodexWebSocketAppendState(state);
+	logger.time("codexWs:newSocket");
 	state.connection = new CodexWebSocketConnection(url, headerRecord, {
 		idleTimeoutMs: getCodexWebSocketIdleTimeoutMs(),
 		firstEventTimeoutMs: getCodexWebSocketFirstEventTimeoutMs(),

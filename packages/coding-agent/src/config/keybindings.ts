@@ -219,6 +219,7 @@ const KEYBINDING_NAME_MIGRATIONS = {
 	tree: "app.session.tree",
 	fork: "app.session.fork",
 	resume: "app.session.resume",
+	observeSessions: "app.session.observe",
 	toggleSTT: "app.stt.toggle",
 	// TUI editor (old names for backward compatibility)
 	cursorUp: "tui.editor.cursorUp",
@@ -265,9 +266,6 @@ function isLegacyKeybindingName(key: string): key is keyof typeof KEYBINDING_NAM
 	return key in KEYBINDING_NAME_MIGRATIONS;
 }
 
-/**
- * Normalize input to KeybindingsConfig, validating types.
- */
 function toKeybindingsConfig(value: unknown): KeybindingsConfig {
 	if (typeof value !== "object" || value === null) {
 		return {};
@@ -275,15 +273,13 @@ function toKeybindingsConfig(value: unknown): KeybindingsConfig {
 
 	const config: KeybindingsConfig = {};
 	for (const [key, val] of Object.entries(value)) {
-		// Allow undefined, string (KeyId), or array of strings
 		if (val === undefined) {
 			config[key] = undefined;
 		} else if (typeof val === "string") {
 			config[key] = val as KeyId;
 		} else if (Array.isArray(val) && val.every(v => typeof v === "string")) {
-			config[key] = val as string[] as KeyId[];
+			config[key] = val as KeyId[];
 		}
-		// Silently skip invalid entries
 	}
 	return config;
 }

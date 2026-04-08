@@ -203,7 +203,6 @@ export const SETTINGS_SCHEMA = {
 			description: "Automatically resume the most recent session in the current directory",
 		},
 	},
-
 	shellPath: { type: "string", default: undefined },
 
 	extensions: { type: "array", default: EMPTY_STRING_ARRAY },
@@ -805,6 +804,8 @@ export const SETTINGS_SCHEMA = {
 
 	"compaction.autoContinue": { type: "boolean", default: true },
 
+	"compaction.remoteEndpoint": { type: "string", default: undefined },
+
 	// Idle compaction
 	"compaction.idleEnabled": {
 		type: "boolean",
@@ -837,7 +838,6 @@ export const SETTINGS_SCHEMA = {
 			submenu: true,
 		},
 	},
-
 	// Branch summaries
 	"branchSummary.enabled": {
 		type: "boolean",
@@ -949,12 +949,12 @@ export const SETTINGS_SCHEMA = {
 	// Edit tool
 	"edit.mode": {
 		type: "enum",
-		values: ["replace", "patch", "hashline"] as const,
+		values: ["replace", "patch", "hashline", "chunk"] as const,
 		default: "hashline",
 		ui: {
 			tab: "editing",
 			label: "Edit Mode",
-			description: "Select the edit tool variant (replace, patch, or hashline)",
+			description: "Select the edit tool variant (replace, patch, hashline, or chunk)",
 		},
 	},
 
@@ -1026,6 +1026,38 @@ export const SETTINGS_SCHEMA = {
 			tab: "editing",
 			label: "Default Read Limit",
 			description: "Default number of lines returned when agent calls read without a limit",
+			submenu: true,
+		},
+	},
+
+	"read.prosechunks": {
+		type: "boolean",
+		default: false,
+		ui: {
+			tab: "editing",
+			label: "Prose Chunks",
+			description: "Enable chunk rendering for prose files in chunk edit mode",
+		},
+	},
+
+	"read.explorechunks": {
+		type: "boolean",
+		default: false,
+		ui: {
+			tab: "editing",
+			label: "Explore Chunks",
+			description: "Show chunk tree without checksums for read-only agents like explore",
+		},
+	},
+
+	"read.anchorstyle": {
+		type: "enum",
+		values: ["full", "kind", "bare"],
+		default: "full",
+		ui: {
+			tab: "editing",
+			label: "Anchor Style",
+			description: "Render chunk anchors with full names, kind prefixes, or checksum-only tags",
 			submenu: true,
 		},
 	},
@@ -1211,6 +1243,16 @@ export const SETTINGS_SCHEMA = {
 			tab: "tools",
 			label: "Render Mermaid",
 			description: "Enable the render_mermaid tool for Mermaid-to-ASCII rendering",
+		},
+	},
+
+	"debug.enabled": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "tools",
+			label: "Debug",
+			description: "Enable the debug tool for DAP-based debugging",
 		},
 	},
 
@@ -1430,73 +1472,6 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
-	"task.verification.enabled": {
-		type: "boolean",
-		default: false,
-		ui: {
-			tab: "tasks",
-			label: "Task Verification Enabled",
-			description: "Enable verification profiles for isolated task runs",
-			submenu: true,
-		},
-	},
-
-	"task.verification.defaultProfile": {
-		type: "string",
-		default: "",
-		ui: {
-			tab: "tasks",
-			label: "Default Verification Profile",
-			description:
-				"Named verification profile used when isolated task verification is requested without an inline override",
-			submenu: true,
-		},
-	},
-
-	"task.verification.requireForIsolated": {
-		type: "boolean",
-		default: false,
-		ui: {
-			tab: "tasks",
-			label: "Require Verification For Isolated Tasks",
-			description: "Automatically require verification when isolated task execution is requested",
-			submenu: true,
-		},
-	},
-
-	"task.verification.maxRetries": {
-		type: "number",
-		default: 1,
-		ui: {
-			tab: "tasks",
-			label: "Task Verification Retries",
-			description: "Maximum bounded repair retries allowed for task verification flows",
-			submenu: true,
-		},
-	},
-
-	"task.verification.failureContextLineLimit": {
-		type: "number",
-		default: 200,
-		ui: {
-			tab: "tasks",
-			label: "Verification Failure Context Lines",
-			description: "How many verification output lines to preserve when building repair context",
-			submenu: true,
-		},
-	},
-
-	"task.verification.profiles": {
-		type: "record",
-		default: {} as Record<string, unknown>,
-		ui: {
-			tab: "tasks",
-			label: "Verification Profiles",
-			description: "Named isolated-task verification profiles keyed by profile name",
-			submenu: true,
-		},
-	},
-
 	"task.eager": {
 		type: "boolean",
 		default: false,
@@ -1529,95 +1504,6 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
-	// Budget policy
-	"task.budget.maxWallTimeMs": {
-		type: "number",
-		default: undefined as number | undefined,
-		ui: {
-			tab: "advanced",
-			label: "Budget: Max Wall Time (ms)",
-			description: "Hard cap on session wall-clock time in milliseconds. Unset = no limit.",
-			submenu: true,
-		},
-	},
-
-	"task.budget.maxInputTokens": {
-		type: "number",
-		default: undefined as number | undefined,
-		ui: {
-			tab: "advanced",
-			label: "Budget: Max Input Tokens",
-			description: "Hard cap on total input tokens consumed. Unset = no limit.",
-			submenu: true,
-		},
-	},
-
-	"task.budget.maxOutputTokens": {
-		type: "number",
-		default: undefined as number | undefined,
-		ui: {
-			tab: "advanced",
-			label: "Budget: Max Output Tokens",
-			description: "Hard cap on total output tokens generated. Unset = no limit.",
-			submenu: true,
-		},
-	},
-
-	"task.budget.maxTotalTokens": {
-		type: "number",
-		default: undefined as number | undefined,
-		ui: {
-			tab: "advanced",
-			label: "Budget: Max Total Tokens",
-			description: "Hard cap on combined input+output token count. Unset = no limit.",
-			submenu: true,
-		},
-	},
-
-	"task.budget.maxCostUsd": {
-		type: "number",
-		default: undefined as number | undefined,
-		ui: {
-			tab: "advanced",
-			label: "Budget: Max Cost (USD)",
-			description: "Hard cap on total spend in US dollars. Unset = no limit.",
-			submenu: true,
-		},
-	},
-
-	"task.budget.maxToolCalls": {
-		type: "number",
-		default: undefined as number | undefined,
-		ui: {
-			tab: "advanced",
-			label: "Budget: Max Tool Calls",
-			description: "Hard cap on the number of tool calls dispatched. Unset = no limit.",
-			submenu: true,
-		},
-	},
-
-	"task.budget.maxSubagents": {
-		type: "number",
-		default: undefined as number | undefined,
-		ui: {
-			tab: "advanced",
-			label: "Budget: Max Subagents",
-			description: "Hard cap on the number of subagent spawns. Unset = no limit.",
-			submenu: true,
-		},
-	},
-
-	"task.budget.warnAtRatio": {
-		type: "number",
-		default: 0.8,
-		ui: {
-			tab: "advanced",
-			label: "Budget: Warn Threshold",
-			description: "Fraction of any limit at which a budget_warning event is emitted (default 0.8 = 80%).",
-			submenu: true,
-		},
-	},
-
 	"task.disabledAgents": {
 		type: "array",
 		default: [] as string[],
@@ -1635,39 +1521,6 @@ export const SETTINGS_SCHEMA = {
 			tab: "tasks",
 			label: "Todo auto-clear delay",
 			description: "How long to wait before removing completed/abandoned tasks from the list",
-			submenu: true,
-		},
-	},
-
-	// Telemetry
-	"telemetry.enabled": {
-		type: "boolean",
-		default: false,
-		ui: {
-			tab: "advanced",
-			label: "Enable Telemetry",
-			description: "Export OpenTelemetry spans to the configured OTLP endpoint",
-		},
-	},
-
-	"telemetry.endpoint": {
-		type: "string",
-		default: "http://localhost:4318/v1/traces",
-		ui: {
-			tab: "advanced",
-			label: "OTLP Endpoint",
-			description: "OTLP/HTTP traces endpoint (e.g. http://localhost:4318/v1/traces)",
-			submenu: true,
-		},
-	},
-
-	"telemetry.serviceName": {
-		type: "string",
-		default: "pisces",
-		ui: {
-			tab: "advanced",
-			label: "Service Name",
-			description: "OTel service.name attribute attached to every trace",
 			submenu: true,
 		},
 	},
@@ -1831,6 +1684,16 @@ export const SETTINGS_SCHEMA = {
 
 	"commit.changelogMaxDiffChars": { type: "number", default: 120000 },
 
+	"dev.autoqa": {
+		type: "boolean",
+		default: false,
+		ui: {
+			tab: "tools",
+			label: "Auto QA",
+			description: "Enable automated tool issue reporting (report_tool_issue) for all agents",
+		},
+	},
+
 	"thinkingBudgets.minimal": { type: "number", default: 1024 },
 
 	"thinkingBudgets.low": { type: "number", default: 2048 },
@@ -1840,28 +1703,6 @@ export const SETTINGS_SCHEMA = {
 	"thinkingBudgets.high": { type: "number", default: 16384 },
 
 	"thinkingBudgets.xhigh": { type: "number", default: 32768 },
-
-	// ────────────────────────────────────────────────────────────────────────
-	// Pisces feature flags
-	// ────────────────────────────────────────────────────────────────────────
-
-	"pisces.preset": {
-		type: "enum",
-		values: ["default", "lobster", "headless", "minimal"] as const,
-		default: "default",
-	},
-
-	"pisces.lobsterMode": { type: "boolean", default: false },
-
-	"pisces.mcpSockets": { type: "array", default: [] as string[] },
-
-	"pisces.noProviderDiscovery": { type: "boolean", default: false },
-
-	"autoresearch.enabled": { type: "boolean", default: true },
-
-	"ssh.enabled": { type: "boolean", default: true },
-
-	"shoal.enabled": { type: "boolean", default: true },
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2066,13 +1907,6 @@ export interface BashInterceptorRule {
 	allowSubcommands?: string[];
 }
 
-export interface PiscesSettings {
-	preset: "default" | "lobster" | "headless" | "minimal";
-	lobsterMode: boolean;
-	mcpSockets: string[];
-	noProviderDiscovery: boolean;
-}
-
 /** Map group prefix -> typed settings interface */
 export interface GroupTypeMap {
 	compaction: CompactionSettings;
@@ -2090,7 +1924,6 @@ export interface GroupTypeMap {
 	modelRoles: Record<string, string>;
 	modelTags: ModelTagsSettings;
 	cycleOrder: string[];
-	pisces: PiscesSettings;
 }
 
 export type GroupPrefix = keyof GroupTypeMap;

@@ -109,7 +109,6 @@ const OPTION_PROVIDERS: Partial<Record<SettingPath, OptionProvider>> = {
 		{ value: "300000", label: "300K tokens", description: "Large context window" },
 		{ value: "500000", label: "500K tokens", description: "Very large context window" },
 	],
-	// Idle compaction threshold tokens
 	"compaction.idleThresholdTokens": [
 		{ value: "100000", label: "100K tokens" },
 		{ value: "200000", label: "200K tokens" },
@@ -121,7 +120,6 @@ const OPTION_PROVIDERS: Partial<Record<SettingPath, OptionProvider>> = {
 		{ value: "800000", label: "800K tokens" },
 		{ value: "900000", label: "900K tokens" },
 	],
-	// Idle compaction timeout seconds
 	"compaction.idleTimeoutSeconds": [
 		{ value: "60", label: "1 minute" },
 		{ value: "120", label: "2 minutes" },
@@ -130,7 +128,7 @@ const OPTION_PROVIDERS: Partial<Record<SettingPath, OptionProvider>> = {
 		{ value: "1800", label: "30 minutes" },
 		{ value: "3600", label: "1 hour" },
 	],
-
+	// Retry max retries
 	"retry.maxRetries": [
 		{ value: "1", label: "1 retry" },
 		{ value: "2", label: "2 retries" },
@@ -281,6 +279,11 @@ const OPTION_PROVIDERS: Partial<Record<SettingPath, OptionProvider>> = {
 		{ value: "500", label: "500 lines" },
 		{ value: "1000", label: "1000 lines" },
 		{ value: "5000", label: "5000 lines" },
+	],
+	"read.anchorstyle": [
+		{ value: "full", label: "Full", description: "Show the kind prefix and identifier" },
+		{ value: "kind", label: "Kind", description: "Show only the kind prefix plus checksum" },
+		{ value: "bare", label: "Bare", description: "Show only the checksum" },
 	],
 	// Todo auto-clear delay
 	"tasks.todoClearDelay": [

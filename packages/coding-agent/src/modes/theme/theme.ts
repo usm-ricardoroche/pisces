@@ -4,10 +4,10 @@ import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import type { Effort } from "@oh-my-pi/pi-ai";
 import {
 	detectMacOSAppearance,
+	MacAppearanceObserver,
 	type HighlightColors as NativeHighlightColors,
 	highlightCode as nativeHighlightCode,
 	supportsLanguage as nativeSupportsLanguage,
-	startMacAppearanceObserver as startNativeMacObserver,
 } from "@oh-my-pi/pi-natives";
 import type { EditorTheme, MarkdownTheme, SelectListTheme, SymbolTheme } from "@oh-my-pi/pi-tui";
 import { adjustHsv, getCustomThemesDir, isEnoent, logger } from "@oh-my-pi/pi-utils";
@@ -1148,9 +1148,14 @@ const langMap: Record<string, SymbolKey> = {
 	sh: "lang.shell",
 	zsh: "lang.shell",
 	fish: "lang.shell",
+	powershell: "lang.shell",
+	just: "lang.shell",
 	shell: "lang.shell",
 	html: "lang.html",
 	htm: "lang.html",
+	astro: "lang.html",
+	vue: "lang.html",
+	svelte: "lang.html",
 	css: "lang.css",
 	scss: "lang.css",
 	sass: "lang.css",
@@ -2057,10 +2062,12 @@ function startMacAppearanceObserver(): void {
 	stopMacAppearanceObserver();
 	if (!shouldUseMacOSAppearanceFallback()) return;
 	try {
-		macOSReportedAppearance = detectMacOSAppearance();
-		macObserver = startNativeMacObserver(appearance => {
-			macOSReportedAppearance = appearance;
-			reevaluateAutoTheme("macOS fallback");
+		macOSReportedAppearance = detectMacOSAppearance() ?? undefined;
+		macObserver = MacAppearanceObserver.start((err, appearance) => {
+			if (!err && (appearance === "dark" || appearance === "light")) {
+				macOSReportedAppearance = appearance;
+				reevaluateAutoTheme("macOS fallback");
+			}
 		});
 	} catch (err) {
 		logger.warn("Failed to start macOS appearance observer", { err });
@@ -2315,69 +2322,132 @@ export function getLanguageFromPath(filePath: string): string | undefined {
 	) {
 		return "conf";
 	}
+	if (baseName === "dockerfile" || baseName.startsWith("dockerfile.") || baseName === "containerfile") {
+		return "dockerfile";
+	}
+	if (baseName === "justfile") return "just";
+	if (baseName === "cmakelists.txt") return "cmake";
 
 	const ext = filePath.split(".").pop()?.toLowerCase();
 	if (!ext) return undefined;
 
 	const extToLang: Record<string, string> = {
 		ts: "typescript",
-		tsx: "typescript",
+		cts: "typescript",
+		mts: "typescript",
+		tsx: "tsx",
 		js: "javascript",
 		jsx: "javascript",
 		mjs: "javascript",
 		cjs: "javascript",
 		py: "python",
+		pyi: "python",
 		rb: "ruby",
+		rbw: "ruby",
+		gemspec: "ruby",
 		rs: "rust",
 		go: "go",
 		java: "java",
 		kt: "kotlin",
+		ktm: "kotlin",
+		kts: "kotlin",
 		swift: "swift",
 		c: "c",
 		h: "c",
 		cpp: "cpp",
 		cc: "cpp",
 		cxx: "cpp",
+		hh: "cpp",
 		hpp: "cpp",
+		cu: "cpp",
+		ino: "cpp",
 		cs: "csharp",
+		clj: "clojure",
+		cljc: "clojure",
+		cljs: "clojure",
+		edn: "clojure",
 		php: "php",
 		sh: "bash",
 		bash: "bash",
 		zsh: "bash",
+		ksh: "bash",
+		bats: "bash",
+		tmux: "bash",
+		cgi: "bash",
+		fcgi: "bash",
+		command: "bash",
+		tool: "bash",
 		fish: "fish",
 		ps1: "powershell",
+		psm1: "powershell",
 		sql: "sql",
 		html: "html",
 		htm: "html",
+		xhtml: "html",
+		astro: "astro",
+		vue: "vue",
+		svelte: "svelte",
 		css: "css",
 		scss: "scss",
 		sass: "sass",
 		less: "less",
 		json: "json",
+		ipynb: "ipynb",
+		hbs: "handlebars",
+		hsb: "handlebars",
+		handlebars: "handlebars",
 		yaml: "yaml",
 		yml: "yaml",
 		toml: "toml",
 		xml: "xml",
+		xsl: "xml",
+		xslt: "xml",
+		svg: "xml",
+		plist: "xml",
 		md: "markdown",
 		markdown: "markdown",
+		mdx: "markdown",
+		diff: "diff",
+		patch: "diff",
 		dockerfile: "dockerfile",
-		makefile: "makefile",
+		containerfile: "dockerfile",
+		makefile: "make",
+		justfile: "just",
+		mk: "make",
+		mak: "make",
 		cmake: "cmake",
 		lua: "lua",
+		jl: "julia",
+		pl: "perl",
+		pm: "perl",
 		perl: "perl",
 		r: "r",
 		scala: "scala",
-		clj: "clojure",
+		sc: "scala",
+		sbt: "scala",
 		ex: "elixir",
 		exs: "elixir",
 		erl: "erlang",
 		hs: "haskell",
+		nix: "nix",
+		odin: "odin",
+		zig: "zig",
+		star: "starlark",
+		bzl: "starlark",
+		sol: "solidity",
+		v: "verilog",
+		sv: "verilog",
+		svh: "verilog",
+		vh: "verilog",
+		m: "objc",
+		mm: "objc",
 		ml: "ocaml",
 		vim: "vim",
 		graphql: "graphql",
 		proto: "protobuf",
 		tf: "hcl",
 		hcl: "hcl",
+		tfvars: "hcl",
 		txt: "text",
 		text: "text",
 		log: "log",
@@ -2388,6 +2458,8 @@ export function getLanguageFromPath(filePath: string): string | undefined {
 		conf: "conf",
 		config: "conf",
 		properties: "conf",
+		tla: "tlaplus",
+		tlaplus: "tlaplus",
 		env: "env",
 	};
 

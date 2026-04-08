@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { Readability } from "@mozilla/readability";
 import type { AgentTool, AgentToolContext, AgentToolResult, AgentToolUpdateCallback } from "@oh-my-pi/pi-agent-core";
 import { StringEnum } from "@oh-my-pi/pi-ai";
-import { getPuppeteerDir, logger, Snowflake, untilAborted } from "@oh-my-pi/pi-utils";
+import { $which, getPuppeteerDir, logger, prompt, Snowflake, untilAborted } from "@oh-my-pi/pi-utils";
 import { type Static, Type } from "@sinclair/typebox";
 import { type HTMLElement, parseHTML } from "linkedom";
 import type {
@@ -16,7 +16,6 @@ import type {
 	default as Puppeteer,
 	SerializedAXNode,
 } from "puppeteer";
-import { renderPromptTemplate } from "../config/prompt-templates";
 import browserDescription from "../prompts/tools/browser.md" with { type: "text" };
 import type { ToolSession } from "../sdk";
 import { resizeImage } from "../utils/image-resize";
@@ -88,8 +87,8 @@ function resolveSystemChromium(): string | undefined {
 		return undefined;
 	}
 	const candidates = [
-		Bun.which("chromium"),
-		Bun.which("chromium-browser"),
+		$which("chromium"),
+		$which("chromium-browser"),
 		path.join(os.homedir(), ".nix-profile/bin/chromium"),
 		"/run/current-system/sw/bin/chromium",
 	];
@@ -539,7 +538,7 @@ export class BrowserTool implements AgentTool<typeof browserSchema, BrowserToolD
 	readonly #patchedClients = new WeakSet<object>();
 
 	constructor(private readonly session: ToolSession) {
-		this.description = renderPromptTemplate(browserDescription, {});
+		this.description = prompt.render(browserDescription, {});
 	}
 
 	async #closeBrowser(): Promise<void> {

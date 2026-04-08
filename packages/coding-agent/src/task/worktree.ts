@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { projfsOverlayStart, projfsOverlayStop } from "@oh-my-pi/pi-natives";
-import { getWorktreeDir, isEnoent, logger, Snowflake } from "@oh-my-pi/pi-utils";
+import { $which, getWorktreeDir, isEnoent, logger, Snowflake } from "@oh-my-pi/pi-utils";
 import { $ } from "bun";
 import * as git from "../utils/git";
 
@@ -348,7 +348,7 @@ export async function ensureFuseOverlay(baseCwd: string, id: string): Promise<st
 	const mergedDir = path.join(baseDir, "merged");
 
 	// Clean up any stale mount at this path (linux only)
-	const fusermount = Bun.which("fusermount3") ?? Bun.which("fusermount");
+	const fusermount = $which("fusermount3") ?? $which("fusermount");
 	if (fusermount) {
 		await $`${fusermount} -u ${mergedDir}`.quiet().nothrow();
 	}
@@ -358,7 +358,7 @@ export async function ensureFuseOverlay(baseCwd: string, id: string): Promise<st
 	await fs.mkdir(workDir, { recursive: true });
 	await fs.mkdir(mergedDir, { recursive: true });
 
-	const binary = Bun.which("fuse-overlayfs");
+	const binary = $which("fuse-overlayfs");
 	if (!binary) {
 		await fs.rm(baseDir, { recursive: true, force: true });
 		throw new Error(
@@ -380,7 +380,7 @@ export async function ensureFuseOverlay(baseCwd: string, id: string): Promise<st
 
 export async function cleanupFuseOverlay(mergedDir: string): Promise<void> {
 	try {
-		const fusermount = Bun.which("fusermount3") ?? Bun.which("fusermount");
+		const fusermount = $which("fusermount3") ?? $which("fusermount");
 		if (fusermount) {
 			await $`${fusermount} -u ${mergedDir}`.quiet().nothrow();
 		}
@@ -553,6 +553,9 @@ export async function mergeTaskBranches(
 			try {
 				await git.stash.pop(repoRoot, { index: true });
 			} catch {
+				// Stash-pop conflicts mean the replayed changes clash with the user's
+				// uncommitted edits. Treat this as a merge failure so the caller preserves
+				// recovery branches instead of reporting success and deleting them.
 				logger.warn("Failed to restore stashed changes after task merge; stash entry preserved");
 				if (!conflictResult) {
 					conflictResult = {

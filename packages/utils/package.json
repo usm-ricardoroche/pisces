@@ -1,7 +1,7 @@
 {
 	"type": "module",
 	"name": "@oh-my-pi/pi-utils",
-	"version": "13.18.0",
+	"version": "14.0.1",
 	"description": "Shared utilities for pi packages",
 	"homepage": "https://github.com/can1357/oh-my-pi",
 	"author": "Can Boluk",
@@ -28,6 +28,7 @@
 	},
 	"dependencies": {
 		"beautiful-mermaid": "^1.1",
+		"handlebars": "^4.7.9",
 		"winston": "^3.19",
 		"winston-daily-rotate-file": "^5.0"
 	},

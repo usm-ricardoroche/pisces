@@ -25,6 +25,10 @@ export class EventController {
 	#idleCompactionTimer?: NodeJS.Timeout;
 	constructor(private ctx: InteractiveModeContext) {}
 
+	dispose(): void {
+		this.#cancelIdleCompaction();
+	}
+
 	#resetReadGroup(): void {
 		this.#lastReadGroup = undefined;
 	}
@@ -448,7 +452,8 @@ export class EventController {
 					this.ctx.session.abortCompaction();
 				};
 				this.ctx.statusContainer.clear();
-				const reasonText = event.reason === "overflow" ? "Context overflow detected, " : "";
+				const reasonText =
+					event.reason === "overflow" ? "Context overflow detected, " : event.reason === "idle" ? "Idle " : "";
 				const actionLabel = event.action === "handoff" ? "Auto-handoff" : "Auto context-full maintenance";
 				this.ctx.autoCompactionLoader = new Loader(
 					this.ctx.ui,
@@ -580,7 +585,9 @@ export class EventController {
 
 	#scheduleIdleCompaction(): void {
 		this.#cancelIdleCompaction();
-		// Don't schedule while compaction/handoff is already running
+		// Don't schedule while compaction/handoff is already running — the agent_end from a
+		// handoff agent turn still has the old session's bloated token counts, and scheduling
+		// here would fire after the session resets, trying to handoff an empty session.
 		if (this.ctx.session.isCompacting) return;
 
 		const idleSettings = settings.getGroup("compaction");
@@ -589,7 +596,6 @@ export class EventController {
 		// Only if input is empty
 		if (this.ctx.editor.getText().trim()) return;
 
-		// Check token count against idle threshold
 		const threshold = idleSettings.idleThresholdTokens;
 		if (threshold <= 0) return;
 		if (this.#currentContextTokens() < threshold) return;
@@ -606,10 +612,6 @@ export class EventController {
 			void this.ctx.session.runIdleCompaction();
 		}, timeoutMs);
 		this.#idleCompactionTimer.unref?.();
-	}
-
-	dispose(): void {
-		this.#cancelIdleCompaction();
 	}
 
 	#currentContextTokens(): number {

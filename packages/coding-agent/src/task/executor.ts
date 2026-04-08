@@ -6,12 +6,12 @@
 import path from "node:path";
 import type { AgentEvent, ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import type { SearchDb } from "@oh-my-pi/pi-natives";
-import { logger, untilAborted } from "@oh-my-pi/pi-utils";
+import { logger, prompt, untilAborted } from "@oh-my-pi/pi-utils";
 import type { TSchema } from "@sinclair/typebox";
-import Ajv, { type AnySchema, type ValidateFunction } from "ajv";
+import Ajv, { type ValidateFunction } from "ajv";
 import { ModelRegistry } from "../config/model-registry";
 import { resolveModelOverride } from "../config/model-resolver";
-import { type PromptTemplate, renderPromptTemplate } from "../config/prompt-templates";
+import type { PromptTemplate } from "../config/prompt-templates";
 import { Settings } from "../config/settings";
 import { SETTINGS_SCHEMA, type SettingPath } from "../config/settings-schema";
 import type { CustomTool } from "../extensibility/custom-tools/types";
@@ -59,7 +59,7 @@ const agentEventTypes = new Set<AgentEvent["type"]>([
 	"tool_execution_end",
 ]);
 
-const isAgentEvent = (event: AgentSessionEvent): event is Extract<AgentSessionEvent, { type: AgentEvent["type"] }> =>
+const isAgentEvent = (event: AgentSessionEvent): event is AgentEvent =>
 	agentEventTypes.has(event.type as AgentEvent["type"]);
 
 function normalizeModelPatterns(value: string | string[] | undefined): string[] {
@@ -183,7 +183,7 @@ function buildOutputValidator(schema: unknown): { validate?: ValidateFunction; e
 	if (normalized === undefined) return {};
 	const jsonSchema = jtdToJsonSchema(normalized);
 	try {
-		return { validate: ajv.compile(jsonSchema as AnySchema) };
+		return { validate: ajv.compile(jsonSchema as any) };
 	} catch (err) {
 		return { error: err instanceof Error ? err.message : String(err) };
 	}
@@ -965,7 +965,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				skills: options.skills,
 				promptTemplates: options.promptTemplates,
 				systemPrompt: defaultPrompt =>
-					renderPromptTemplate(subagentSystemPromptTemplate, {
+					prompt.render(subagentSystemPromptTemplate, {
 						base: defaultPrompt,
 						agent: agent.systemPrompt,
 						worktree: worktree ?? "",
@@ -997,6 +997,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					index,
 				});
 			}
+
 			const subagentToolNames = session.getActiveToolNames();
 			const parentOwnedToolNames = new Set(["todo_write"]);
 			const filteredSubagentTools = subagentToolNames.filter(name => !parentOwnedToolNames.has(name));
@@ -1105,7 +1106,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			while (!submitResultCalled && retryCount < MAX_SUBMIT_RESULT_RETRIES && !abortSignal.aborted) {
 				try {
 					retryCount++;
-					const reminder = renderPromptTemplate(submitReminderTemplate, {
+					const reminder = prompt.render(submitReminderTemplate, {
 						retryCount,
 						maxRetries: MAX_SUBMIT_RESULT_RETRIES,
 					});
@@ -1189,19 +1190,6 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 	resolved = true;
 	listenerController.abort();
 
-	// Emit lifecycle end event after finalization so submit_result status is reflected
-	if (options.eventBus) {
-		options.eventBus.emit(TASK_SUBAGENT_LIFECYCLE_CHANNEL, {
-			id,
-			agent: agent.name,
-			agentSource: agent.source,
-			description: options.description,
-			status: progress.status as "completed" | "failed" | "aborted",
-			sessionFile: subtaskSessionFile,
-			index,
-		});
-	}
-
 	if (progressTimeoutId) {
 		clearTimeout(progressTimeoutId);
 		progressTimeoutId = null;
@@ -1264,6 +1252,19 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		: undefined;
 	progress.status = wasAborted ? "aborted" : exitCode === 0 ? "completed" : "failed";
 	scheduleProgress(true);
+
+	// Emit lifecycle end event after finalization so submit_result status is reflected
+	if (options.eventBus) {
+		options.eventBus.emit(TASK_SUBAGENT_LIFECYCLE_CHANNEL, {
+			id,
+			agent: agent.name,
+			agentSource: agent.source,
+			description: options.description,
+			status: progress.status as "completed" | "failed" | "aborted",
+			sessionFile: subtaskSessionFile,
+			index,
+		});
+	}
 
 	return {
 		index,

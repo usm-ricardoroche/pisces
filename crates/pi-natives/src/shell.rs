@@ -114,7 +114,6 @@ pub struct ShellRunOptions<'env> {
 	/// Environment variables to apply for this command only.
 	pub env:        Option<HashMap<String, String>>,
 	/// Timeout in milliseconds before cancelling the command.
-	#[napi(js_name = "timeoutMs")]
 	pub timeout_ms: Option<u32>,
 	/// Abort signal for cancelling the operation.
 	pub signal:     Option<Unknown<'env>>,
@@ -167,9 +166,8 @@ impl Shell {
 		&self,
 		env: &'e Env,
 		options: ShellRunOptions<'e>,
-		#[napi(ts_arg_type = "((chunk: string) => void) | undefined | null")] on_chunk: Option<
-			ThreadsafeFunction<String>,
-		>,
+		#[napi(ts_arg_type = "((error: Error | null, chunk: string) => void) | undefined | null")]
+		on_chunk: Option<ThreadsafeFunction<String>>,
 	) -> Result<PromiseRaw<'e, ShellRunResult>> {
 		let ct = task::CancelToken::new(options.timeout_ms, options.signal);
 		let session = self.session.clone();
@@ -268,10 +266,8 @@ pub struct ShellExecuteOptions<'env> {
 	/// Environment variables to apply once per session.
 	pub session_env:   Option<HashMap<String, String>>,
 	/// Timeout in milliseconds before cancelling the command.
-	#[napi(js_name = "timeoutMs")]
 	pub timeout_ms:    Option<u32>,
 	/// Optional snapshot file to source on session creation.
-	#[napi(js_name = "snapshotPath")]
 	pub snapshot_path: Option<String>,
 	/// Abort signal for cancelling the operation.
 	pub signal:        Option<Unknown<'env>>,
@@ -293,13 +289,12 @@ pub struct ShellExecuteResult {
 /// Creates a fresh session for each call. The `on_chunk` callback receives
 /// streamed stdout/stderr output. Returns the exit code when the command
 /// completes, or flags when cancelled or timed out.
-#[napi(js_name = "executeShell")]
+#[napi]
 pub fn execute_shell<'env>(
 	env: &'env Env,
 	options: ShellExecuteOptions<'env>,
-	#[napi(ts_arg_type = "((chunk: string) => void) | undefined | null")] on_chunk: Option<
-		ThreadsafeFunction<String>,
-	>,
+	#[napi(ts_arg_type = "((error: Error | null, chunk: string) => void) | undefined | null")]
+	on_chunk: Option<ThreadsafeFunction<String>>,
 ) -> Result<PromiseRaw<'env, ShellExecuteResult>> {
 	let config =
 		ShellConfig { session_env: options.session_env, snapshot_path: options.snapshot_path };

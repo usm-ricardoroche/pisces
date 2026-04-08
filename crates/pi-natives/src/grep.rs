@@ -36,10 +36,26 @@ use crate::{
 
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Output mode for [`search`] and [`grep`] (string values match JS callers).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[napi(string_enum)]
+pub enum GrepOutputMode {
+	/// Emit matched lines (and optional context lines).
+	#[napi(value = "content")]
+	Content,
+	/// Emit per-file or total counts instead of line content.
+	#[napi(value = "count")]
+	Count,
+	/// Emit one row per file that matched, without line content.
+	#[napi(value = "filesWithMatches")]
+	FilesWithMatches,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OutputMode {
 	Content,
 	Count,
+	FilesWithMatches,
 }
 
 /// Options for searching file content.
@@ -48,28 +64,23 @@ pub struct SearchOptions {
 	/// Regex pattern to search for.
 	pub pattern:        String,
 	/// Case-insensitive search.
-	#[napi(js_name = "ignoreCase")]
 	pub ignore_case:    Option<bool>,
 	/// Enable multiline matching.
 	pub multiline:      Option<bool>,
 	/// Maximum number of matches to return.
-	#[napi(js_name = "maxCount")]
 	pub max_count:      Option<u32>,
 	/// Skip first N matches.
 	pub offset:         Option<u32>,
 	/// Lines of context before matches.
-	#[napi(js_name = "contextBefore")]
 	pub context_before: Option<u32>,
 	/// Lines of context after matches.
-	#[napi(js_name = "contextAfter")]
 	pub context_after:  Option<u32>,
 	/// Lines of context before/after matches (legacy).
 	pub context:        Option<u32>,
 	/// Truncate lines longer than this (characters).
-	#[napi(js_name = "maxColumns")]
 	pub max_columns:    Option<u32>,
 	/// Output mode (content or count).
-	pub mode:           Option<String>,
+	pub mode:           Option<GrepOutputMode>,
 }
 
 /// Options for searching files on disk.
@@ -82,10 +93,8 @@ pub struct GrepOptions<'env> {
 	/// Glob filter for filenames (e.g., "*.ts").
 	pub glob:           Option<String>,
 	/// Filter by file type (e.g., "js", "py", "rust").
-	#[napi(js_name = "type")]
-	pub type_filter:    Option<String>,
+	pub r#type:         Option<String>,
 	/// Case-insensitive search.
-	#[napi(js_name = "ignoreCase")]
 	pub ignore_case:    Option<bool>,
 	/// Enable multiline matching.
 	pub multiline:      Option<bool>,
@@ -96,27 +105,22 @@ pub struct GrepOptions<'env> {
 	/// Enable shared filesystem scan cache (default: false).
 	pub cache:          Option<bool>,
 	/// Maximum number of matches to return.
-	#[napi(js_name = "maxCount")]
 	pub max_count:      Option<u32>,
 	/// Skip first N matches.
 	pub offset:         Option<u32>,
 	/// Lines of context before matches.
-	#[napi(js_name = "contextBefore")]
 	pub context_before: Option<u32>,
 	/// Lines of context after matches.
-	#[napi(js_name = "contextAfter")]
 	pub context_after:  Option<u32>,
 	/// Lines of context before/after matches (legacy).
 	pub context:        Option<u32>,
 	/// Truncate lines longer than this (characters).
-	#[napi(js_name = "maxColumns")]
 	pub max_columns:    Option<u32>,
 	/// Output mode (content, filesWithMatches, or count).
-	pub mode:           Option<String>,
+	pub mode:           Option<GrepOutputMode>,
 	/// Abort signal for cancelling the operation.
 	pub signal:         Option<Unknown<'env>>,
 	/// Timeout in milliseconds for the operation.
-	#[napi(js_name = "timeoutMs")]
 	pub timeout_ms:     Option<u32>,
 }
 
@@ -124,7 +128,7 @@ pub struct GrepOptions<'env> {
 #[derive(Clone)]
 #[napi(object)]
 pub struct ContextLine {
-	#[napi(js_name = "lineNumber")]
+	/// 1-indexed line number in the source file.
 	pub line_number: u32,
 	/// Raw line content (trimmed line ending).
 	pub line:        String,
@@ -134,15 +138,12 @@ pub struct ContextLine {
 #[napi(object)]
 pub struct Match {
 	/// 1-indexed line number.
-	#[napi(js_name = "lineNumber")]
 	pub line_number:    u32,
 	/// The matched line content.
 	pub line:           String,
 	/// Context lines before the match.
-	#[napi(js_name = "contextBefore")]
 	pub context_before: Option<Vec<ContextLine>>,
 	/// Context lines after the match.
-	#[napi(js_name = "contextAfter")]
 	pub context_after:  Option<Vec<ContextLine>>,
 	/// Whether the line was truncated.
 	pub truncated:      Option<bool>,
@@ -154,10 +155,8 @@ pub struct SearchResult {
 	/// All matches found.
 	pub matches:       Vec<Match>,
 	/// Total number of matches (may exceed `matches.len()` due to offset/limit).
-	#[napi(js_name = "matchCount")]
 	pub match_count:   u32,
 	/// Whether the limit was reached.
-	#[napi(js_name = "limitReached")]
 	pub limit_reached: bool,
 	/// Error message, if any.
 	pub error:         Option<String>,
@@ -170,20 +169,16 @@ pub struct GrepMatch {
 	/// File path for the match (relative for directory searches).
 	pub path:           String,
 	/// 1-indexed line number (0 for count-only entries).
-	#[napi(js_name = "lineNumber")]
 	pub line_number:    u32,
 	/// The matched line content (empty for count-only entries).
 	pub line:           String,
 	/// Context lines before the match.
-	#[napi(js_name = "contextBefore")]
 	pub context_before: Option<Vec<ContextLine>>,
 	/// Context lines after the match.
-	#[napi(js_name = "contextAfter")]
 	pub context_after:  Option<Vec<ContextLine>>,
 	/// Whether the line was truncated.
 	pub truncated:      Option<bool>,
 	/// Per-file match count (count mode only).
-	#[napi(js_name = "matchCount")]
 	pub match_count:    Option<u32>,
 }
 
@@ -193,16 +188,12 @@ pub struct GrepResult {
 	/// Matches or per-file counts, depending on output mode.
 	pub matches:            Vec<GrepMatch>,
 	/// Total matches across all files.
-	#[napi(js_name = "totalMatches")]
 	pub total_matches:      u32,
 	/// Number of files with at least one match.
-	#[napi(js_name = "filesWithMatches")]
 	pub files_with_matches: u32,
 	/// Number of files searched.
-	#[napi(js_name = "filesSearched")]
 	pub files_searched:     u32,
 	/// Whether the limit/offset stopped the search early.
-	#[napi(js_name = "limitReached")]
 	pub limit_reached:      Option<bool>,
 }
 
@@ -500,10 +491,11 @@ impl Sink for MatchCollector {
 // Option resolution
 // ---------------------------------------------------------------------------
 
-fn parse_output_mode(mode: Option<&str>) -> OutputMode {
+const fn parse_output_mode(mode: Option<GrepOutputMode>) -> OutputMode {
 	match mode {
-		Some("count" | "filesWithMatches") => OutputMode::Count,
-		_ => OutputMode::Content,
+		None | Some(GrepOutputMode::Content) => OutputMode::Content,
+		Some(GrepOutputMode::Count) => OutputMode::Count,
+		Some(GrepOutputMode::FilesWithMatches) => OutputMode::FilesWithMatches,
 	}
 }
 
@@ -608,7 +600,7 @@ fn run_search(
 	content: &[u8],
 	params: SearchParams,
 ) -> io::Result<SearchResultInternal> {
-	let collect_matches = params.mode == OutputMode::Content;
+	let collect_matches = matches!(params.mode, OutputMode::Content);
 	let (before, after) = if collect_matches {
 		(params.context_before as usize, params.context_after as usize)
 	} else {
@@ -757,7 +749,7 @@ struct GrepConfig {
 	context_after:  Option<u32>,
 	context:        Option<u32>,
 	max_columns:    Option<u32>,
-	mode:           Option<String>,
+	mode:           Option<GrepOutputMode>,
 }
 
 fn collect_files(
@@ -1307,6 +1299,17 @@ fn run_sequential_search(
 					match_count:    Some(crate::utils::clamp_u32(search.match_count)),
 				});
 			},
+			OutputMode::FilesWithMatches => {
+				matches.push(GrepMatch {
+					path:           entry.relative_path.clone(),
+					line_number:    0,
+					line:           String::new(),
+					context_before: None,
+					context_after:  None,
+					truncated:      None,
+					match_count:    None,
+				});
+			},
 		}
 
 		if search.limit_reached || max_count.is_some_and(|max| collected >= max) {
@@ -1324,7 +1327,7 @@ fn run_sequential_search(
 fn search_sync(content: &[u8], options: SearchOptions) -> SearchResult {
 	let ignore_case = options.ignore_case.unwrap_or(false);
 	let multiline = options.multiline.unwrap_or(false);
-	let mode = parse_output_mode(options.mode.as_deref());
+	let mode = parse_output_mode(options.mode);
 	let matcher = match build_matcher(&options.pattern, ignore_case, multiline) {
 		Ok(matcher) => matcher,
 		Err(err) => return empty_search_result(Some(err.to_string())),
@@ -1370,7 +1373,7 @@ fn grep_sync(
 		.map_err(|err| Error::from_reason(format!("Path not found: {err}")))?;
 	let ignore_case = options.ignore_case.unwrap_or(false);
 	let multiline = options.multiline.unwrap_or(false);
-	let output_mode = parse_output_mode(options.mode.as_deref());
+	let output_mode = parse_output_mode(options.mode);
 	let matcher = build_matcher(&options.pattern, ignore_case, multiline)?;
 
 	let (context_before, context_after) =
@@ -1463,6 +1466,17 @@ fn grep_sync(
 					context_after:  None,
 					truncated:      None,
 					match_count:    Some(crate::utils::clamp_u32(search.match_count)),
+				});
+			},
+			OutputMode::FilesWithMatches => {
+				matches.push(GrepMatch {
+					path:           path_string,
+					line_number:    0,
+					line:           String::new(),
+					context_before: None,
+					context_after:  None,
+					truncated:      None,
+					match_count:    None,
 				});
 			},
 		}
@@ -1560,6 +1574,21 @@ fn grep_sync(
 					}
 					matches.push(grep_match);
 				},
+				OutputMode::FilesWithMatches => {
+					let grep_match = GrepMatch {
+						path:           result.relative_path.clone(),
+						line_number:    0,
+						line:           String::new(),
+						context_before: None,
+						context_after:  None,
+						truncated:      None,
+						match_count:    None,
+					};
+					if let Some(callback) = on_match {
+						callback.call(Ok(grep_match.clone()), ThreadsafeFunctionCallMode::NonBlocking);
+					}
+					matches.push(grep_match);
+				},
 			}
 		}
 
@@ -1604,7 +1633,7 @@ fn grep_sync(
 ///
 /// # Returns
 /// Match list plus counts/limit status; errors are surfaced in `error`.
-#[napi(js_name = "search")]
+#[napi]
 pub fn search(content: Either<JsString, Uint8Array>, options: SearchOptions) -> SearchResult {
 	match &content {
 		Either::A(js_str) => {
@@ -1628,12 +1657,12 @@ pub fn search(content: Either<JsString, Uint8Array>, options: SearchOptions) -> 
 ///
 /// # Returns
 /// True if any match exists; false on no match.
-#[napi(js_name = "hasMatch")]
+#[napi]
 pub fn has_match(
 	content: Either<JsString, Uint8Array>,
 	pattern: Either<JsString, Uint8Array>,
-	ignore_case: bool,
-	multiline: bool,
+	ignore_case: Option<bool>,
+	multiline: Option<bool>,
 ) -> Result<bool> {
 	// Hold JsStringUtf8 on the stack and borrow - no copy
 	let content_utf8;
@@ -1660,7 +1689,8 @@ pub fn has_match(
 		},
 	};
 
-	let matcher = build_matcher(pattern_ref, ignore_case, multiline)?;
+	let matcher =
+		build_matcher(pattern_ref, ignore_case.unwrap_or(false), multiline.unwrap_or(false))?;
 	Ok(matcher.is_match(content_slice).unwrap_or(false))
 }
 
@@ -1672,19 +1702,18 @@ pub fn has_match(
 ///
 /// # Returns
 /// Aggregated results across matching files.
-#[napi(js_name = "grep")]
+#[napi]
 pub fn grep(
 	options: GrepOptions<'_>,
-	#[napi(ts_arg_type = "((match: GrepMatch) => void) | undefined | null")] on_match: Option<
-		ThreadsafeFunction<GrepMatch>,
-	>,
+	#[napi(ts_arg_type = "((error: Error | null, match: GrepMatch) => void) | undefined | null")]
+	on_match: Option<ThreadsafeFunction<GrepMatch>>,
 	db: Option<&crate::search_db::SearchDb>,
-) -> task::Async<GrepResult> {
+) -> task::Promise<GrepResult> {
 	let GrepOptions {
 		pattern,
 		path,
 		glob,
-		type_filter,
+		r#type,
 		ignore_case,
 		multiline,
 		hidden,
@@ -1705,7 +1734,7 @@ pub fn grep(
 		pattern,
 		path,
 		glob,
-		type_filter,
+		type_filter: r#type,
 		ignore_case,
 		multiline,
 		hidden,

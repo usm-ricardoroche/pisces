@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+## [14.0.0] - 2026-04-08
+
+### Breaking Changes
+
+- Changed `ChunkRegion.Inner` enum value to `ChunkRegion.Body` to align with region semantics
+- Changed `ChunkRegion` enum values from `Container`, `Prologue`, `Body`, `Epilogue` to `Head`, `Inner`, `Tail` with updated semantics for region targeting
+- Replaced `ChunkEditOp` enum values — `AppendChild`, `PrependChild`, `AppendSibling`, `PrependSibling`, and `ReplaceBody` are now `Before`, `After`, `Prepend`, and `Append` with updated semantics for region-scoped operations
+- Removed `ReplaceBody` operation — use `Replace` with `region: ChunkRegion.Body` to replace only chunk body content
+- Moved package entry point from `src/index.ts` to `native/index.js` — consumers must update imports to use the new native module path
+- Removed TypeScript source files from `src/` directory — all APIs now exported from auto-generated `native/index.js` with types in `native/index.d.ts`
+- Changed enum exports to runtime objects — `const enum` values are now available at runtime via generated enum exports in `native/index.js`
+
+### Added
+
+- Added `ChunkRegion` enum with `Container`, `Prologue`, `Body`, and `Epilogue` values for targeting specific regions within chunks
+- Added `region` parameter to `EditOperation` to specify which chunk region to target (defaults to `Container`)
+- Added `UnsupportedRegion` status to `ChunkReadStatus` enum to indicate when a chunk does not support the requested region
+- Added `normalizeIndent` parameter to `RenderParams` and `ReadRenderParams` to normalize displayed indentation to canonical tabs
+- Added `ReplaceBody` chunk edit operation to replace only the inner body of a chunk while preserving signature and closing delimiter
+- Added `ChunkFocusMode` enum with `Expanded`, `Collapsed`, and `Container` modes for controlling chunk participation in focus-scoped render passes
+- Added `FocusedPath` interface to pair paths with focus modes for the N-API boundary
+- Added `focusedPaths` parameter to `RenderParams` to restrict rendering to specified chunks with their focus modes
+- Generated native module bindings in `native/index.js` and `native/index.d.ts` from napi-rs build output
+- Added `gen-enums.ts` script to extract and export runtime enum values from TypeScript const enums
+- Added `embedded-addon.js` for managing embedded native addon variants and metadata
+- Added `MacOSPowerAssertion` for session-scoped macOS idle-sleep prevention without shelling out
+
+### Changed
+
+- Changed `ChunkInfo.name` field to optional `identifier` field — now provides bare chunk identifier without kind prefix instead of display name
+- Updated `region` parameter documentation in `EditOperation` to clarify full chunk targeting when omitted instead of container-scoped default
+- Updated `ChunkEditOp` documentation to reflect region-scoped semantics — operations now target specific regions rather than chunk structure positions
+- Changed `ChunkEditOp.Replace` documentation to clarify substring replacement via `find` parameter instead of line-based replacement
+- Changed `EditOperation` interface to use `find` parameter for scoped find/replace operations instead of `line` and `endLine` parameters
+- Changed `EditParams` documentation to remove mention of scheduling reordering for line-scoped groups
+- Simplified native build pipeline by removing `--dev` flag support; debug builds no longer available through npm scripts
+- Updated native module loader to check `XDG_DATA_HOME` environment variable for native addon location before falling back to `~/.omp/natives`
+- Removed native binding validation function that checked for required exports at load time
+- Refactored build pipeline to use napi-rs generated bindings instead of hand-written TypeScript wrappers
+- Updated `build-native.ts` to generate runtime enum exports after native compilation
+- Updated `embed-native.ts` to output JavaScript instead of TypeScript for embedded addon metadata
+
+### Removed
+
+- Removed `dev:native` npm script — use `build:native` for all build scenarios
+- Removed inline pi-utils helpers and dependency on `@oh-my-pi/pi-utils` from native module loader
+- Removed `logger.time()` wrapper calls from native module loading
+- Removed all TypeScript wrapper modules from `src/` directory (appearance, ast, chunk, clipboard, glob, grep, highlight, html, image, keys, projfs, ps, pty, shell, text, work)
+- Removed `src/bindings.ts` and `src/index.ts` entry points
+- Removed `src/search-db.ts` and `src/search-db-types.ts`
+
 ## [13.16.1] - 2026-03-27
 
 ### Added

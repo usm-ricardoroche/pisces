@@ -6,8 +6,8 @@ import { $ } from "bun";
 const repoRoot = path.join(import.meta.dir, "../../..");
 const rustDir = path.join(repoRoot, "crates/pi-natives");
 const nativeDir = path.join(import.meta.dir, "../native");
+const packageJsonPath = path.join(import.meta.dir, "../package.json");
 
-const isDev = process.argv.includes("--dev");
 const crossTarget = Bun.env.CROSS_TARGET;
 const targetPlatform = Bun.env.TARGET_PLATFORM || process.platform;
 const targetArch = Bun.env.TARGET_ARCH || process.arch;
@@ -136,61 +136,98 @@ async function installBinary(src: string, dest: string): Promise<void> {
 	}
 }
 
-const cargoArgs = ["build"];
-if (!isDev) cargoArgs.push("--release");
-if (crossTarget) cargoArgs.push("--target", crossTarget);
+async function resolveBuiltAddonPath(canonicalFilename: string): Promise<string> {
+	const canonicalFilenames = new Set([
+		`pi_natives.${targetPlatform}-${targetArch}.node`,
+		`pi_natives.${targetPlatform}-${targetArch}-modern.node`,
+		`pi_natives.${targetPlatform}-${targetArch}-baseline.node`,
+	]);
+	const entries = await fs.readdir(nativeDir);
 
-console.log(`Building pi-natives for ${targetPlatform}-${targetArch}${variantSuffix}${isDev ? " (debug)" : ""}…`);
-const buildResult = await $`cargo ${cargoArgs}`.cwd(rustDir).nothrow();
-if (buildResult.exitCode !== 0) {
-	const stderr = buildResult.stderr?.toString("utf-8") ?? "";
-	throw new Error(`cargo build --release failed${stderr ? `:\n${stderr}` : ""}`);
-}
-
-const profile = isDev ? "debug" : "release";
-const targetRoots = [
-	Bun.env.CARGO_TARGET_DIR ? path.resolve(Bun.env.CARGO_TARGET_DIR) : undefined,
-	path.join(repoRoot, "target"),
-	path.join(rustDir, "target"),
-].filter((v): v is string => Boolean(v));
-
-const profileDirs = targetRoots.flatMap(root => {
-	if (crossTarget) {
-		return [path.join(root, crossTarget, profile), path.join(root, profile)];
+	if (entries.includes(canonicalFilename)) {
+		return path.join(nativeDir, canonicalFilename);
 	}
-	return [path.join(root, profile)];
-});
 
-const libraryNames = ["libpi_natives.so", "libpi_natives.dylib", "pi_natives.dll", "libpi_natives.dll"];
-
-let sourcePath: string | null = null;
-for (const dir of profileDirs) {
-	for (const name of libraryNames) {
-		const fullPath = path.join(dir, name);
-		try {
-			await fs.stat(fullPath);
-			sourcePath = fullPath;
-			break;
-		} catch (err) {
-			if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+	const generatedCandidates = entries.filter(entry => {
+		if (!entry.startsWith(`pi_natives.${targetPlatform}-${targetArch}`) || !entry.endsWith(".node")) {
+			return false;
 		}
+		return !canonicalFilenames.has(entry);
+	});
+
+	if (generatedCandidates.length === 1) {
+		return path.join(nativeDir, generatedCandidates[0]);
 	}
-	if (sourcePath) break;
+
+	if (generatedCandidates.length === 0) {
+		throw new Error(
+			`napi build succeeded but did not emit a native addon for ${targetPlatform}-${targetArch}. Expected ${canonicalFilename} or an environment-tagged variant in ${nativeDir}.`,
+		);
+	}
+
+	const formattedCandidates = generatedCandidates.map(candidate => `  - ${candidate}`).join("\n");
+	throw new Error(
+		`napi build emitted multiple unrecognized native addons for ${targetPlatform}-${targetArch}:\n${formattedCandidates}`,
+	);
 }
+
+const isCI = Boolean(Bun.env.CI);
+const useLocalProfile = !isCI && !isCrossCompile;
+
+// Build napi args
+const napiArgs = [
+	"build",
+	"--manifest-path",
+	path.join(rustDir, "Cargo.toml"),
+	"--package-json-path",
+	packageJsonPath,
+	"--platform",
+	"--no-js",
+	"--dts",
+	"index.d.ts",
+	"-o",
+	nativeDir,
+];
+
+if (useLocalProfile) {
+	napiArgs.push("--profile", "local");
+} else {
+	napiArgs.push("--release");
+}
+
+if (crossTarget) napiArgs.push("--target", crossTarget);
+
+const profileLabel = useLocalProfile ? " (local)" : "";
+const canonicalAddonFilename = `pi_natives.${targetPlatform}-${targetArch}${variantSuffix}.node`;
+const canonicalAddonPath = path.join(nativeDir, canonicalAddonFilename);
+
+console.log(`Building pi-natives for ${targetPlatform}-${targetArch}${variantSuffix}${profileLabel}…`);
 
 await fs.mkdir(nativeDir, { recursive: true });
 await cleanupStaleTemps(nativeDir);
 
-if (!sourcePath) {
-	const checked = profileDirs.map(d => `  - ${d}`).join("\n");
-	throw new Error(`Built library not found. Checked:\n${checked}`);
+// Resolve napi bin directly: `bunx @napi-rs/cli` can pick up the wrong bin on
+// systems where `cli` exists on PATH (e.g. Mono's /usr/bin/cli on Ubuntu).
+const napiBin = Bun.which("napi", {
+	PATH: `${path.join(import.meta.dir, "..", "node_modules", ".bin")}:${path.join(repoRoot, "node_modules", ".bin")}:${process.env.PATH ?? ""}`,
+});
+if (!napiBin) {
+	throw new Error("Could not locate @napi-rs/cli `napi` binary in node_modules/.bin");
+}
+const buildResult = await $`${napiBin} ${napiArgs}`.nothrow();
+if (buildResult.exitCode !== 0) {
+	const stderr = buildResult.stderr?.toString("utf-8") ?? "";
+	throw new Error(`napi build failed${stderr ? `:\n${stderr}` : ""}`);
 }
 
-console.log(`Found: ${sourcePath}`);
-const taggedPath = isDev
-	? path.join(nativeDir, "pi_natives.dev.node")
-	: path.join(nativeDir, `pi_natives.${targetPlatform}-${targetArch}${variantSuffix}.node`);
-console.log(`Installing: ${taggedPath}`);
-await installBinary(sourcePath, taggedPath);
+const builtAddonPath = await resolveBuiltAddonPath(canonicalAddonFilename);
+if (builtAddonPath !== canonicalAddonPath) {
+	console.log(`Normalizing native addon filename: ${path.basename(builtAddonPath)} → ${canonicalAddonFilename}`);
+	await installBinary(builtAddonPath, canonicalAddonPath);
+	await fs.unlink(builtAddonPath).catch(() => {});
+}
+
+// Generate runtime enum exports from const enums in index.d.ts
+await $`bun ${path.join(import.meta.dir, "gen-enums.ts")}`;
 
 console.log("Build complete.");
