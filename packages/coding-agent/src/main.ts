@@ -47,11 +47,8 @@ import { type CreateAgentSessionOptions, createAgentSession, discoverAuthStorage
 import type { AgentSession } from "./session/agent-session";
 import { resolveResumableSession, type SessionInfo, SessionManager } from "./session/session-manager";
 import { resolvePromptInput } from "./system-prompt";
-<<<<<<< HEAD
 import { getBundledAgent } from "./task/agents";
-=======
 import type { LspStartupServerInfo } from "./tools";
->>>>>>> upstream/main
 import { getChangelogPath, getNewEntries, parseChangelog } from "./utils/changelog";
 import type { EventBus } from "./utils/event-bus";
 
@@ -148,11 +145,7 @@ async function runInteractiveMode(
 	setExtensionUIContext: (uiContext: ExtensionUIContext, hasUI: boolean) => void,
 	lspServers: LspStartupServerInfo[] | undefined,
 	mcpManager: MCPManager | undefined,
-<<<<<<< HEAD
-	eventBus: EventBus,
-=======
 	eventBus?: EventBus,
->>>>>>> upstream/main
 	initialMessage?: string,
 	initialImages?: ImageContent[],
 ): Promise<void> {
@@ -697,16 +690,11 @@ export async function runRootCommand(parsed: Args, rawArgs: string[]): Promise<v
 	const mode = parsedArgs.mode || "text";
 
 	// Initialize discovery system with settings for provider persistence
-<<<<<<< HEAD
-	logger.time("initializeWithSettings", () => initializeWithSettings(settings));
+	logger.time("initializeWithSettings");
+	initializeWithSettings(settings);
 	if (!parsedArgs.noProviderDiscovery && !settings.get("pisces.noProviderDiscovery")) {
 		modelRegistry.refreshInBackground();
 	}
-=======
-	logger.time("initializeWithSettings");
-	initializeWithSettings(settings);
-	modelRegistry.refreshInBackground();
->>>>>>> upstream/main
 
 	// Apply model role overrides from CLI args or env vars (ephemeral, not persisted)
 	const smolModel = parsedArgs.smol ?? $env.PI_SMOL_MODEL;
@@ -864,11 +852,7 @@ export async function runRootCommand(parsed: Args, rawArgs: string[]): Promise<v
 		}
 	}
 
-<<<<<<< HEAD
-	const { session, setToolUIContext, modelFallbackMessage, lspServers, mcpManager, eventBus } = await logger.timeAsync(
-=======
 	const { session, setToolUIContext, modelFallbackMessage, lspServers, mcpManager, eventBus } = await logger.time(
->>>>>>> upstream/main
 		"createAgentSession",
 		createAgentSession,
 		sessionOptions,
