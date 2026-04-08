@@ -435,6 +435,10 @@ export interface AgentModelPatternResolutionOptions {
 export function resolveAgentModelPatterns(options: AgentModelPatternResolutionOptions): string[] {
 	const { settingsOverride, agentModel, settings, activeModelPattern, fallbackModelPattern } = options;
 
+	// PI_MODEL env var takes highest priority
+	const piModelEnv = process.env.PI_MODEL?.trim();
+	if (piModelEnv) return [piModelEnv];
+	
 	const overridePatterns = resolveConfiguredModelPatterns(settingsOverride, settings);
 	if (overridePatterns.length > 0) return overridePatterns;
 
